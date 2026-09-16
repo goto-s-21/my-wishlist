@@ -1226,31 +1226,39 @@ export default function WishlistApp() {
           />
         )}
 
-        {screen === "notifications" && (
-          <div style={{ paddingBottom: 32 }}>
-            <TopBar title="通知設定" onBack={() => go("settings")} />
-            <div className="px-4">
-              <div className="rounded-2xl p-4" style={{ background: C.card, border: `1px solid ${C.line}` }}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Bell size={16} color={C.ink} />
-                    <span className="text-[13.5px] font-medium" style={{ color: C.ink }}>値下がり通知</span>
-                  </div>
-                  <Toggle
-                    checked={notifSettings.priceDropEnabled}
-                    onChange={() => setNotifSettings((prev) => ({ priceDropEnabled: !prev.priceDropEnabled }))}
-                  />
-                </div>
-                <p className="text-[12px] mt-2 leading-relaxed" style={{ color: C.inkSoft }}>
-                  登録した商品の価格が下がったときにお知らせします。
-                </p>
-                <p className="text-[11px] mt-2 leading-relaxed" style={{ color: C.inkSoft }}>
-                  Web PushやメールでのプッシュはVercelの日次チェックが動くようになってから届くようになります。
-                </p>
-              </div>
-            </div>
+        {screen === 'notifications' && (
+  <div style={{ paddingBottom: 32 }}>
+    <TopBar title="通知設定" onBack={() => go('settings')} />
+    <div className="px-4">
+      <NotificationSettings />
+
+      <div
+        className="rounded-2xl p-4 mt-2"
+        style={{ background: C.card, border: `1px solid ${C.line}` }}
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Bell size={16} color={C.ink} />
+            <span className="text-13.5px font-medium" style={{ color: C.ink }}>
+              値下がり通知（アプリ内表示）
+            </span>
           </div>
-        )}
+          <Toggle
+            checked={notifSettings.priceDropEnabled}
+            onChange={() =>
+              setNotifSettings((prev) => ({
+                priceDropEnabled: !prev.priceDropEnabled,
+              }))
+            }
+          />
+        </div>
+        <p className="text-12px mt-2 leading-relaxed" style={{ color: C.inkSoft }}>
+          値下がりした商品をホーム画面のPRICE DROPに表示するかどうかの設定です。
+        </p>
+      </div>
+    </div>
+  </div>
+)}
 
         {screen === "settings" && (
           <div style={{ paddingBottom: NAV_HEIGHT + 16 }}>

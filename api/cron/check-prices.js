@@ -1,117 +1,125 @@
+// api/cron/check-prices.js
+// Vercel Cronから1日1回呼び出される価格チェック処理
+
 import { createClient } from '@supabase/supabase-js';
 import webpush from 'web-push';
-import { Resend } from 'resend';
 
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
 webpush.setVapidDetails(
-  'mailto:you@example.com',
+  'mailto:you@example.com', // 適宜自分の連絡先メールに変更してください
   process.env.VAPID_PUBLIC_KEY,
   process.env.VAPID_PRIVATE_KEY
 );
-const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
-
-function extractPrice(html, host) {
-  const clean = (s) => (s ? s.replace(/,/g, '') : s);
-
-  if (/amazon\.co\.jp|amazon\.com/i.test(host)) {
-    const m =
-      html.match(/class=["'][^"']*a-price-whole[^"']*["'][^>]*>([\d,]+)/i) ||
-      html.match(/"priceAmount"\s*:\s*([\d.]+)/i);
-    return m ? clean(m[1]) : null;
-  }
-  if (/rakuten\.co\.jp/i.test(host)) {
-    const m =
-      html.match(/itemprop=["']price["'][^>]*content=["']([\d.,]+)["']/i) ||
-      html.match(/<meta[^>]*property=["']og:price:amount["'][^>]*content=["']([\d.,]+)["']/i);
-    return m ? clean(m[1]) : null;
-  }
-  if (/zozo\.jp/i.test(host)) {
-    const m = html.match(/class=["'][^"']*p-goods-price[^"']*["'][^>]*>[^\d]*([\d,]+)/i);
-    return m ? clean(m[1]) : null;
-  }
-  if (/mercari\.com/i.test(host)) {
-    const m = html.match(/"price"\s*:\s*"?(\d+)"?/i);
-    return m ? m[1] : null;
-  }
-  if (/qoo10\.jp/i.test(host)) {
-    const m =
-      html.match(/class=["'][^"']*price_real[^"']*["'][^>]*>[^\d]*([\d,]+)/i) ||
-      html.match(/"salePrice"\s*:\s*"?([\d,.]+)"?/i);
-    return m ? clean(m[1]) : null;
-  }
-  const m = html.match(/<meta[^>]*(?:property|name)=["'](?:og:price:amount|product:price:amount|price)["'][^>]*content=["']([\d.,]+)["']/i);
-  return m ? clean(m[1]) : null;
-}
 
 async function fetchCurrentPrice(url) {
-  const host = (() => {
-    try { return new URL(url).hostname; } catch { return ''; }
-  })();
-  const r = await fetch(url, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      'Accept-Language': 'ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7',
-    },
-  });
-  const html = await r.text();
-  const price = extractPrice(html, host);
-  return price ? Math.round(parseFloat(price)) : null;
+  try {
+    const r = await fetch(url, {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept-Language': 'ja-JP,ja;q=0.9',
+      },
+    });
+    const html = await r.text();
+
+    const host = new URL(url).hostname;
+    let price = null;
+
+    if (/amazon\.co\.jp|amazon\.com/i.test(host)) {
+      const m =
+        html.match(/class=["'][^"']*a-price-whole[^"']*["'][^>]*>([\d,]+)/i) ||
+        html.match(/"priceAmount"\s*:\s*([\d.]+)/i);
+      if (m) price = m[1].replace(/,/g, '');
+    } else if (/rakuten\.co\.jp/i.test(host)) {
+      const m = html.match(/itemprop=["']price["'][^>]*content=["']([\d.,]+)["']/i);
+      if (m) price = m[1].replace(/,/g, '');
+    } else if (/zozo\.jp/i.test(host)) {
+      const m = html.match(/class=["'][^"']*p-goods-price[^"']*["'][^>]*>[^\d]*([\d,]+)/i);
+      if (m) price = m[1].replace(/,/g, '');
+    } else if (/qoo10\.jp/i.test(host)) {
+      const m =
+        html.match(/class=["'][^"']*price_real[^"']*["'][^>]*>[^\d]*([\d,]+)/i) ||
+        html.match(/"salePrice"\s*:\s*"?([\d,.]+)"?/i);
+      if (m) price = m[1].replace(/,/g, '');
+    }
+
+    if (!price) {
+      const m = html.match(
+        /<meta[^>]*(?:property|name)=["'](?:product:price:amount|price)["'][^>]*content=["']([\d.,]+)["']/i
+      );
+      if (m) price = m[1].replace(/,/g, '');
+    }
+
+    return price ? Math.round(parseFloat(price)) : null;
+  } catch (e) {
+    return null;
+  }
 }
 
-async function notify(userId, product, previousPrice, newPrice) {
-  const { data: subs } = await supabase
+async function sendPushToUser(userId, payload) {
+  const { data: subs } = await supabaseAdmin
     .from('push_subscriptions')
     .select('*')
     .eq('user_id', userId);
 
-  const title = '♡ 値下がりしました';
-  const body = `${product.name}が安くなりました\n¥${previousPrice} → ¥${newPrice}（¥${previousPrice - newPrice} OFF）`;
-  const pushPayload = JSON.stringify({ title, body, url: `/product/${product.id}` });
+  if (!subs || subs.length === 0) {
+    return { pushed: false };
+  }
 
-  let pushSucceeded = false;
-  if (subs && subs.length > 0) {
-    for (const s of subs) {
-      try {
-        await webpush.sendNotification(
-          { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
-          pushPayload
-        );
-        pushSucceeded = true;
-      } catch (e) {
-        if (e.statusCode === 404 || e.statusCode === 410) {
-          await supabase.from('push_subscriptions').delete().eq('id', s.id);
-        }
+  let anySuccess = false;
+  for (const sub of subs) {
+    try {
+      await webpush.sendNotification(
+        {
+          endpoint: sub.endpoint,
+          keys: { p256dh: sub.p256dh, auth: sub.auth },
+        },
+        JSON.stringify(payload)
+      );
+      anySuccess = true;
+    } catch (e) {
+      if (e.statusCode === 404 || e.statusCode === 410) {
+        await supabaseAdmin.from('push_subscriptions').delete().eq('id', sub.id);
       }
     }
   }
+  return { pushed: anySuccess };
+}
 
-  // プッシュが1件も送れなかった場合のみ、メールにフォールバックする。
-  if (!pushSucceeded && resend) {
-    const { data: userData } = await supabase.auth.admin.getUserById(userId);
-    const email = userData?.user?.email;
-    if (email) {
-      try {
-        await resend.emails.send({
-          from: 'onboarding@resend.dev',
-          to: email,
-          subject: `値下がり: ${product.name}`,
-          text: `${body}\n\n商品ページ: ${product.product_url}`,
-        });
-      } catch (e) {
-        // メール送信失敗は握りつぶす。次回のチェックで再度通知を試みる。
-      }
-    }
+async function sendFallbackEmail(userEmail, payload) {
+  if (!process.env.RESEND_API_KEY) return;
+  try {
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: 'wishlist@yourdomain.com',
+        to: userEmail,
+        subject: payload.title,
+        html: `<p>${payload.body}</p>`,
+      }),
+    });
+  } catch (e) {
+    // メール失敗は握りつぶす(次回チェックで再試行される想定)
   }
 }
 
 export default async function handler(req, res) {
-  if (req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
-    return res.status(401).end();
+  const authHeader = req.headers.authorization;
+  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    return res.status(401).json({ error: 'unauthorized' });
   }
 
-  const { data: products, error } = await supabase
+  const { data: products, error } = await supabaseAdmin
     .from('products')
-    .select('*')
+    .select('id, user_id, name, product_url, current_price')
     .eq('purchased', false)
     .eq('price_check_enabled', true)
     .not('product_url', 'is', null);
@@ -120,34 +128,56 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: error.message });
   }
 
-  let checked = 0;
-  let dropped = 0;
-  let failed = 0;
+  const results = [];
 
-  for (const p of products || []) {
-    checked++;
-    try {
-      const newPrice = await fetchCurrentPrice(p.product_url);
-      if (newPrice === null) {
-        failed++;
-        continue; // このサイトは価格を取得できない → 次回のチェックに持ち越し
+  for (const product of products) {
+    const newPrice = await fetchCurrentPrice(product.product_url);
+
+    if (newPrice === null) {
+      results.push({ id: product.id, status: 'fetch_failed' });
+      continue;
+    }
+
+    if (newPrice === product.current_price) {
+      results.push({ id: product.id, status: 'unchanged' });
+      continue;
+    }
+
+    await supabaseAdmin.from('price_history').insert({
+      product_id: product.id,
+      price: newPrice,
+      checked_at: new Date().toISOString(),
+      source: 'auto_check',
+    });
+
+    await supabaseAdmin
+      .from('products')
+      .update({ current_price: newPrice, updated_at: new Date().toISOString() })
+      .eq('id', product.id);
+
+    if (newPrice < product.current_price) {
+      const diff = product.current_price - newPrice;
+      const payload = {
+        title: '♡ 値下がりしました',
+        body: `${product.name}が安くなりました\n¥${product.current_price.toLocaleString()} → ¥${newPrice.toLocaleString()}（¥${diff.toLocaleString()} OFF）`,
+        url: `/products/${product.id}`,
+      };
+
+      const { pushed } = await sendPushToUser(product.user_id, payload);
+
+      if (!pushed) {
+        const { data: userData } = await supabaseAdmin.auth.admin.getUserById(
+          product.user_id
+        );
+        const email = userData?.user?.email;
+        if (email) await sendFallbackEmail(email, payload);
       }
-      if (p.current_price != null && newPrice < p.current_price) {
-        const previousPrice = p.current_price;
-        await supabase.from('products').update({ current_price: newPrice, updated_at: new Date().toISOString() }).eq('id', p.id);
-        await supabase.from('price_history').insert({ product_id: p.id, price: newPrice, source: 'auto' });
-        await notify(p.user_id, p, previousPrice, newPrice);
-        dropped++;
-      } else if (p.current_price == null) {
-        // 初回チェックで初めて価格が判明した場合は履歴に追加するが、通知はしない。
-        await supabase.from('products').update({ current_price: newPrice, updated_at: new Date().toISOString() }).eq('id', p.id);
-        await supabase.from('price_history').insert({ product_id: p.id, price: newPrice, source: 'auto' });
-      }
-      // 価格が上がった、または変わらない場合は何もしない(通知しない、履歴も増やさない)。
-    } catch (e) {
-      failed++; // 取得失敗 → 次回のチェックで再試行
+
+      results.push({ id: product.id, status: 'price_drop_notified', pushed });
+    } else {
+      results.push({ id: product.id, status: 'price_increased_no_notify' });
     }
   }
 
-  res.status(200).json({ checked, dropped, failed });
+  return res.status(200).json({ checked: products.length, results });
 }
