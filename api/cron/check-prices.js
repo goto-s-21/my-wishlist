@@ -5,7 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 import webpush from 'web-push';
 
 const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
@@ -158,8 +158,8 @@ export default async function handler(req, res) {
     if (newPrice < product.current_price) {
       const diff = product.current_price - newPrice;
       const payload = {
-        title: '♡ 値下がりしました',
-        body: `${product.name}が安くなりました\n¥${product.current_price.toLocaleString()} → ¥${newPrice.toLocaleString()}（¥${diff.toLocaleString()} OFF）`,
+        title: '\u2661 \u5024\u4e0b\u304c\u308a\u3057\u307e\u3057\u305f',
+        body: `${product.name}\u304c\u5b89\u304f\u306a\u308a\u307e\u3057\u305f\n\u00a5${product.current_price.toLocaleString()} \u2192 \u00a5${newPrice.toLocaleString()}\uff08\u00a5${diff.toLocaleString()} OFF\uff09`,
         url: `/products/${product.id}`,
       };
 
