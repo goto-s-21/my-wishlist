@@ -6,6 +6,7 @@ import {
   ShoppingBag, ChevronRight, Loader2
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
+import { uploadProductImage } from "./lib/uploadImage";
 
 /* ---------------------------------------------------------
    Design tokens — soft pink, Korean-style, minimal
@@ -395,7 +396,7 @@ function ConfirmModal({ dialog, onCancel }) {
 /* ---------------------------------------------------------
    Product form (add / edit)
 --------------------------------------------------------- */
-function ProductForm({ initial, categories, isNew, onCancel, onSave, onManageCategories }) {
+function ProductForm({ initial, categories, isNew, onCancel, onSave, onManageCategories, userId }) {
   const [mode, setMode] = useState("manual");
   const [urlDraft, setUrlDraft] = useState("");
   const [fetching, setFetching] = useState(false);
@@ -404,6 +405,7 @@ function ProductForm({ initial, categories, isNew, onCancel, onSave, onManageCat
 
   const [name, setName] = useState(initial?.name || "");
   const [image, setImage] = useState(initial?.image || "");
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [price, setPrice] = useState(initial?.price ?? "");
   const [url, setUrl] = useState(initial?.url || "");
   const [categoryId, setCategoryId] = useState(initial?.categoryId || categories[0]?.id);
@@ -437,11 +439,18 @@ function ProductForm({ initial, categories, isNew, onCancel, onSave, onManageCat
   async function handleImagePick(e) {
     const file = e.target.files?.[0];
     if (!file) return;
+    setUploadingImage(true);
+    setFetchMsg("");
     try {
-      const dataUrl = await resizeImage(file);
-      setImage(dataUrl);
+      const resizedDataUrl = await resizeImage(file);
+      const blob = await (await fetch(resizedDataUrl)).blob();
+      const uploadFile = new File([blob], file.name || "image.jpg", { type: "image/jpeg" });
+      const publicUrl = await uploadProductImage(uploadFile, userId);
+      setImage(publicUrl);
     } catch (err) {
-      setFetchMsg("画像を取り込めませんでした。もう一度お試しください。");
+      setFetchMsg("画像のアップロードに失敗しました。もう一度お試しください。");
+    } finally {
+      setUploadingImage(false);
     }
   }
 
@@ -519,10 +528,16 @@ function ProductForm({ initial, categories, isNew, onCancel, onSave, onManageCat
             <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleImagePick} />
             <button
               onClick={() => fileRef.current?.click()}
+              disabled={uploadingImage}
               className="w-full aspect-square rounded-[22px] flex flex-col items-center justify-center gap-2 overflow-hidden"
-              style={{ background: C.beige, border: `1px dashed ${C.beigeDeep}` }}
+              style={{ background: C.beige, border: `1px dashed ${C.beigeDeep}`, opacity: uploadingImage ? 0.7 : 1 }}
             >
-              {image ? (
+              {uploadingImage ? (
+                <>
+                  <Loader2 size={26} className="spin" color={C.inkSoft} />
+                  <span className="text-[12.5px]" style={{ color: C.inkSoft }}>アップロード中…</span>
+                </>
+              ) : image ? (
                 <img src={image} alt="" className="w-full h-full object-cover" />
               ) : (
                 <>
@@ -611,9 +626,9 @@ function ProductForm({ initial, categories, isNew, onCancel, onSave, onManageCat
         >
           <button
             onClick={handleSave}
-            disabled={saving}
+            disabled={saving || uploadingImage}
             className="w-full py-3.5 rounded-2xl text-[15px] font-medium flex items-center justify-center gap-2"
-            style={{ background: C.pinkStrong, color: "#fff", opacity: saving ? 0.6 : 1 }}
+            style={{ background: C.pinkStrong, color: "#fff", opacity: saving || uploadingImage ? 0.6 : 1 }}
           >
             {saving && <Loader2 size={16} className="spin" />}
             保存する
@@ -1193,6 +1208,7 @@ export default function WishlistApp() {
             isNew={screen === "add"}
             initial={screen === "edit" ? selected : null}
             categories={categories}
+            userId={session?.user?.id}
             onCancel={() => go(screen === "edit" ? "detail" : "home")}
             onManageCategories={() => go("categories")}
             onSave={(fields) => (screen === "add" ? addProduct(fields) : saveEdit(selected.id, fields))}
