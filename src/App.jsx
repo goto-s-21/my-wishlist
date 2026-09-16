@@ -958,7 +958,7 @@ export default function WishlistApp() {
         button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid ${C.pinkStrong}; outline-offset: 2px; }
       `}</style>
 
-      <div className="w-full relative" style={{ maxWidth: 430, background: C.bg, minHeight: 640 }}>
+      <div className="w-full relative" style={{ maxWidth: 430, background: C.bg, minHeight: "100vh" }}>
         <Toast toast={toast} onClose={() => setToast(null)} onOpen={() => { openProduct(toast.productId); setToast(null); }} />
         <ConfirmModal dialog={dialog} onCancel={() => setDialog(null)} />
 
@@ -1227,39 +1227,14 @@ export default function WishlistApp() {
           />
         )}
 
-        {screen === 'notifications' && (
-  <div style={{ paddingBottom: 16 }}>
-    <TopBar title="通知設定" onBack={() => go('settings')} />
-    <div className="px-4">
-      <NotificationSettings />
-
-      <div
-        className="rounded-2xl p-4 mt-2"
-        style={{ background: C.card, border: `1px solid ${C.line}` }}
-      >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Bell size={16} color={C.ink} />
-            <span className="text-13.5px font-medium" style={{ color: C.ink }}>
-              値下がり通知（アプリ内表示）
-            </span>
+        {screen === "notifications" && (
+          <div style={{ paddingBottom: 16 }}>
+            <TopBar title="通知設定" onBack={() => go("settings")} />
+            <div className="px-4">
+              <NotificationSettings session={session} />
+            </div>
           </div>
-          <Toggle
-            checked={notifSettings.priceDropEnabled}
-            onChange={() =>
-              setNotifSettings((prev) => ({
-                priceDropEnabled: !prev.priceDropEnabled,
-              }))
-            }
-          />
-        </div>
-        <p className="text-12px mt-2 leading-relaxed" style={{ color: C.inkSoft }}>
-          値下がりした商品をホーム画面のPRICE DROPに表示するかどうかの設定です。
-        </p>
-      </div>
-    </div>
-  </div>
-)}
+        )}
 
         {screen === "settings" && (
           <div style={{ paddingBottom: NAV_HEIGHT + 16 }}>
