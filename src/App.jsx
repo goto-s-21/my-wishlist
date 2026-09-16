@@ -1228,7 +1228,7 @@ export default function WishlistApp() {
         )}
 
         {screen === 'notifications' && (
-  <div style={{ paddingBottom: 32 }}>
+  <div style={{ paddingBottom: 16 }}>
     <TopBar title="通知設定" onBack={() => go('settings')} />
     <div className="px-4">
       <NotificationSettings />
