@@ -8,20 +8,25 @@ import {
 import { supabase } from "./lib/supabase";
 
 /* ---------------------------------------------------------
-   Design tokens (韓国っぽい × 大人可愛い × シンプル)
+   Design tokens — soft pink, Korean-style, minimal
 --------------------------------------------------------- */
 const C = {
-  bg: "#FAF6F0",
+  bg: "#FDE6EC",
   card: "#FFFFFF",
-  pink: "#F3D9DE",
-  pinkDeep: "#D98BA0",
-  beige: "#EAE0CF",
-  beigeDeep: "#C9B99C",
-  ink: "#3A342F",
-  inkSoft: "#948B82",
-  line: "#EEE6D9",
-  danger: "#C97B7B",
+  pink: "#FFD9E3",
+  pinkSoft: "#FCEEF2",
+  pinkDeep: "#E8879F",
+  pinkStrong: "#D46485",
+  beige: "#FBEAEE",
+  beigeDeep: "#E3B6C4",
+  ink: "#4A3B40",
+  inkSoft: "#A98D95",
+  line: "#F6DEE5",
+  danger: "#D97A88",
 };
+
+const NAV_HEIGHT = 76;
+const FORM_BAR_HEIGHT = 84;
 
 const SONOTA_NAME = "その他";
 
@@ -126,23 +131,24 @@ async function fetchProducts() {
    Small shared components
 --------------------------------------------------------- */
 function HeartRating({ value = 0, size = 15, editable = false, onChange }) {
+  const Item = editable ? "button" : "span";
   return (
     <div className="flex items-center gap-[2px]">
       {[1, 2, 3, 4, 5].map((i) => (
-        <button
+        <Item
           key={i}
-          type="button"
-          disabled={!editable}
-          onClick={(e) => { e.stopPropagation(); onChange && onChange(i); }}
-          style={{ lineHeight: 0, cursor: editable ? "pointer" : "default", padding: editable ? 4 : 0 }}
+          type={editable ? "button" : undefined}
+          disabled={editable ? false : undefined}
+          onClick={editable ? (e) => { e.stopPropagation(); onChange && onChange(i); } : undefined}
+          style={{ lineHeight: 0, cursor: editable ? "pointer" : "default", padding: editable ? 4 : 0, display: "inline-flex" }}
         >
           <Heart
             size={size}
-            fill={i <= value ? C.pinkDeep : "none"}
-            color={i <= value ? C.pinkDeep : C.beigeDeep}
+            fill={i <= value ? C.pinkStrong : "none"}
+            color={i <= value ? C.pinkStrong : C.beigeDeep}
             strokeWidth={1.6}
           />
-        </button>
+        </Item>
       ))}
     </div>
   );
@@ -153,7 +159,7 @@ function PriceDropBadge({ product, style }) {
   return (
     <span
       className="inline-flex items-center gap-[2px] rounded-full text-[11px] font-medium px-2 py-[2px]"
-      style={{ background: C.pink, color: "#9C4C64", ...style }}
+      style={{ background: C.pink, color: C.pinkStrong, ...style }}
     >
       <ArrowDownRight size={11} strokeWidth={2.4} />
       {formatPrice(dropAmount(product))} OFF
@@ -166,7 +172,7 @@ function ProductCard({ product, onClick }) {
     <button
       onClick={onClick}
       className="text-left w-full rounded-[20px] overflow-hidden flex flex-col"
-      style={{ background: C.card, boxShadow: "0 2px 10px rgba(58,52,47,0.06)" }}
+      style={{ background: C.card, boxShadow: "0 2px 12px rgba(212,100,133,0.14)" }}
     >
       <div className="w-full aspect-square relative" style={{ background: C.beige }}>
         {product.image ? (
@@ -179,7 +185,7 @@ function ProductCard({ product, onClick }) {
         {product.purchased && (
           <div
             className="absolute top-2 left-2 rounded-full text-[10px] px-2 py-[3px] font-medium"
-            style={{ background: "rgba(58,52,47,0.72)", color: "#fff" }}
+            style={{ background: "rgba(74,59,64,0.72)", color: "#fff" }}
           >
             購入済み
           </div>
@@ -201,12 +207,40 @@ function ProductCard({ product, onClick }) {
   );
 }
 
+function EmptyGridSlot() {
+  return (
+    <div
+      className="w-full rounded-[20px]"
+      style={{
+        aspectRatio: "0.78",
+        background: `repeating-linear-gradient(135deg, ${C.pinkSoft} 0px, ${C.pinkSoft} 10px, transparent 10px, transparent 20px)`,
+        border: `1.5px dashed ${C.beigeDeep}`,
+        opacity: 0.6,
+      }}
+    />
+  );
+}
+
+function ProductGrid({ items, onOpen, minSlots = 0 }) {
+  const placeholders = Math.max(0, minSlots - items.length);
+  return (
+    <div className="grid grid-cols-2 gap-3 px-4">
+      {items.map((p) => (
+        <ProductCard key={p.id} product={p} onClick={() => onOpen(p.id)} />
+      ))}
+      {Array.from({ length: placeholders }).map((_, i) => (
+        <EmptyGridSlot key={`ph-${i}`} />
+      ))}
+    </div>
+  );
+}
+
 function HScrollCard({ product, onClick, wide }) {
   return (
     <button
       onClick={onClick}
       className="text-left flex-shrink-0 rounded-[18px] overflow-hidden"
-      style={{ width: wide ? 210 : 128, background: C.card, boxShadow: "0 2px 10px rgba(58,52,47,0.06)" }}
+      style={{ width: wide ? 210 : 128, background: C.card, boxShadow: "0 2px 12px rgba(212,100,133,0.14)" }}
     >
       {wide ? (
         <div className="flex items-stretch">
@@ -239,10 +273,10 @@ function HScrollCard({ product, onClick, wide }) {
 function SectionHeader({ title, onMore }) {
   return (
     <div className="flex items-center justify-between px-4 mb-2.5">
-      <h2 className="text-[13px] font-semibold tracking-wide" style={{ color: C.ink }}>{title}</h2>
+      <h2 className="text-[13px] font-semibold tracking-wide" style={{ color: C.pinkStrong }}>{title}</h2>
       {onMore && (
         <button onClick={onMore} className="text-[11.5px] flex items-center" style={{ color: C.inkSoft }}>
-          もっと見る <ChevronRight size={13} />
+          More <ChevronRight size={13} />
         </button>
       )}
     </div>
@@ -267,19 +301,19 @@ function TopBar({ title, onBack, right }) {
 
 function BottomNav({ screen, go }) {
   const items = [
-    { key: "home", icon: HomeIcon, label: "ホーム" },
-    { key: "list", icon: Heart, label: "ウィッシュ" },
-    { key: "add", icon: Plus, label: "追加", accent: true },
-    { key: "settings", icon: SettingsIcon, label: "その他" },
+    { key: "home", icon: HomeIcon, label: "Home" },
+    { key: "list", icon: Heart, label: "Wishlist" },
+    { key: "add", icon: Plus, label: "Add", accent: true },
+    { key: "settings", icon: SettingsIcon, label: "More" },
   ];
   const active = ["home", "list", "add", "settings"].includes(screen) ? screen : null;
   return (
     <div
-      className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full flex justify-around items-center"
+      className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full flex justify-around items-center z-40"
       style={{
-        maxWidth: 430, background: "rgba(250,246,240,0.94)", backdropFilter: "blur(6px)",
-        borderTop: `1px solid ${C.line}`, paddingBottom: "env(safe-area-inset-bottom, 10px)",
-        paddingTop: 8,
+        maxWidth: 430, height: NAV_HEIGHT, background: "rgba(253,230,236,0.96)", backdropFilter: "blur(6px)",
+        borderTop: `1px solid ${C.line}`, paddingBottom: "env(safe-area-inset-bottom, 0px)",
+        boxSizing: "border-box",
       }}
     >
       {items.map((it) => {
@@ -287,17 +321,17 @@ function BottomNav({ screen, go }) {
         const Icon = it.icon;
         if (it.accent) {
           return (
-            <button key={it.key} onClick={() => go(it.key)} className="flex flex-col items-center gap-1 pb-1">
-              <div className="rounded-full flex items-center justify-center" style={{ width: 44, height: 44, background: C.ink }}>
+            <button key={it.key} onClick={() => go(it.key)} className="flex flex-col items-center gap-1">
+              <div className="rounded-full flex items-center justify-center" style={{ width: 44, height: 44, background: C.pinkStrong }}>
                 <Icon size={21} color="#fff" strokeWidth={2} />
               </div>
             </button>
           );
         }
         return (
-          <button key={it.key} onClick={() => go(it.key)} className="flex flex-col items-center gap-1 pb-1 px-3">
-            <Icon size={21} strokeWidth={1.8} color={isActive ? C.ink : C.inkSoft} fill={it.key === "list" && isActive ? C.ink : "none"} />
-            <span className="text-[10px]" style={{ color: isActive ? C.ink : C.inkSoft }}>{it.label}</span>
+          <button key={it.key} onClick={() => go(it.key)} className="flex flex-col items-center gap-1 px-3">
+            <Icon size={21} strokeWidth={1.8} color={isActive ? C.pinkStrong : C.inkSoft} fill={it.key === "list" && isActive ? C.pinkStrong : "none"} />
+            <span className="text-[10px]" style={{ color: isActive ? C.pinkStrong : C.inkSoft }}>{it.label}</span>
           </button>
         );
       })}
@@ -317,13 +351,13 @@ function Toast({ toast, onOpen, onClose }) {
       <button
         onClick={onOpen}
         className="mx-3 mt-2 w-full rounded-2xl px-4 py-3 text-left toast-anim"
-        style={{ background: C.ink, color: "#fff", boxShadow: "0 8px 24px rgba(0,0,0,0.22)" }}
+        style={{ background: C.pinkStrong, color: "#fff", boxShadow: "0 8px 24px rgba(212,100,133,0.35)" }}
       >
-        <div className="flex items-center gap-1.5 text-[12px] mb-1" style={{ color: C.pink }}>
-          <Heart size={12} fill={C.pink} /> 値下がりしました
+        <div className="flex items-center gap-1.5 text-[12px] mb-1" style={{ color: "#FFE3EA" }}>
+          <Heart size={12} fill="#FFE3EA" /> 値下がりしました
         </div>
         <div className="text-[13.5px] font-medium">{toast.body}</div>
-        <div className="text-[12.5px] mt-0.5" style={{ color: "rgba(255,255,255,0.75)" }}>{toast.priceLine} ・ {toast.offLine}</div>
+        <div className="text-[12.5px] mt-0.5" style={{ color: "rgba(255,255,255,0.8)" }}>{toast.priceLine} ・ {toast.offLine}</div>
       </button>
     </div>
   );
@@ -332,7 +366,7 @@ function Toast({ toast, onOpen, onClose }) {
 function ConfirmModal({ dialog, onCancel }) {
   if (!dialog) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center" style={{ background: "rgba(58,52,47,0.4)" }} onClick={onCancel}>
+    <div className="fixed inset-0 z-50 flex items-end justify-center" style={{ background: "rgba(74,59,64,0.4)" }} onClick={onCancel}>
       <div
         className="w-full mx-auto rounded-t-[26px] p-5 pb-8"
         style={{ maxWidth: 430, background: C.card }}
@@ -348,7 +382,7 @@ function ConfirmModal({ dialog, onCancel }) {
           <button
             onClick={dialog.onConfirm}
             className="flex-1 py-3 rounded-2xl text-[14px] font-medium"
-            style={{ background: dialog.danger ? C.danger : C.ink, color: "#fff" }}
+            style={{ background: dialog.danger ? C.danger : C.pinkStrong, color: "#fff" }}
           >
             {dialog.confirmLabel || "実行する"}
           </button>
@@ -426,7 +460,7 @@ function ProductForm({ initial, categories, isNew, onCancel, onSave, onManageCat
   }
 
   return (
-    <div className="pb-28">
+    <div style={{ paddingBottom: showFields ? FORM_BAR_HEIGHT + 24 : 24 }}>
       <TopBar title={isNew ? "商品を登録" : "商品を編集"} onBack={onCancel} />
 
       {isNew && !showFields && (
@@ -437,7 +471,7 @@ function ProductForm({ initial, categories, isNew, onCancel, onSave, onManageCat
                 key={k}
                 onClick={() => { setMode(k); if (k === "manual") setShowFields(true); }}
                 className="flex-1 py-2 rounded-full text-[13px] font-medium"
-                style={mode === k ? { background: C.ink, color: "#fff" } : { color: C.ink }}
+                style={mode === k ? { background: C.pinkStrong, color: "#fff" } : { color: C.ink }}
               >
                 {label}
               </button>
@@ -460,7 +494,7 @@ function ProductForm({ initial, categories, isNew, onCancel, onSave, onManageCat
                 onClick={handleFetchUrl}
                 disabled={fetching || !urlDraft.trim()}
                 className="w-full py-3 rounded-2xl text-[14px] font-medium flex items-center justify-center gap-2"
-                style={{ background: C.ink, color: "#fff", opacity: fetching || !urlDraft.trim() ? 0.5 : 1 }}
+                style={{ background: C.pinkStrong, color: "#fff", opacity: fetching || !urlDraft.trim() ? 0.5 : 1 }}
               >
                 {fetching ? <Loader2 size={16} className="spin" /> : <Link2 size={15} />}
                 {fetching ? "取得中…" : "情報を取得する"}
@@ -476,7 +510,7 @@ function ProductForm({ initial, categories, isNew, onCancel, onSave, onManageCat
       {showFields && (
         <div className="px-4 flex flex-col gap-5">
           {fetchMsg && (
-            <div className="text-[12.5px] rounded-xl px-3 py-2.5" style={{ background: C.pink, color: "#8A4A5E" }}>
+            <div className="text-[12.5px] rounded-xl px-3 py-2.5" style={{ background: C.pink, color: C.pinkStrong }}>
               {fetchMsg}
             </div>
           )}
@@ -568,14 +602,18 @@ function ProductForm({ initial, categories, isNew, onCancel, onSave, onManageCat
 
       {showFields && (
         <div
-          className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full px-4 pt-3"
-          style={{ maxWidth: 430, background: `linear-gradient(180deg, rgba(250,246,240,0), ${C.bg} 30%)`, paddingBottom: "calc(env(safe-area-inset-bottom, 10px) + 14px)" }}
+          className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full px-4 flex items-center z-40"
+          style={{
+            maxWidth: 430, height: FORM_BAR_HEIGHT,
+            background: `linear-gradient(180deg, rgba(253,230,236,0), ${C.bg} 40%)`,
+            boxSizing: "border-box", paddingBottom: "env(safe-area-inset-bottom, 0px)",
+          }}
         >
           <button
             onClick={handleSave}
             disabled={saving}
             className="w-full py-3.5 rounded-2xl text-[15px] font-medium flex items-center justify-center gap-2"
-            style={{ background: C.ink, color: "#fff", opacity: saving ? 0.6 : 1 }}
+            style={{ background: C.pinkStrong, color: "#fff", opacity: saving ? 0.6 : 1 }}
           >
             {saving && <Loader2 size={16} className="spin" />}
             保存する
@@ -591,7 +629,7 @@ function Field({ label, children, required, error, area }) {
     <div>
       <div className="text-[12px] mb-1.5 flex items-center gap-1" style={{ color: error ? C.danger : C.inkSoft }}>
         {label}
-        {required && <span style={{ color: C.pinkDeep }}>*</span>}
+        {required && <span style={{ color: C.pinkStrong }}>*</span>}
       </div>
       <div
         className={area ? "rounded-2xl px-4 py-3" : "rounded-2xl px-4 py-3.5"}
@@ -890,7 +928,7 @@ export default function WishlistApp() {
   }
 
   return (
-    <div className="w-full flex justify-center" style={{ background: "#EFE7DC", minHeight: 640 }}>
+    <div className="w-full flex justify-center" style={{ background: "#F7C9D6", minHeight: 640 }}>
       <style>{`
         * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", "Noto Sans JP", sans-serif; }
         button { -webkit-tap-highlight-color: transparent; }
@@ -901,7 +939,7 @@ export default function WishlistApp() {
         ::-webkit-scrollbar { display: none; }
         select { -webkit-appearance: none; appearance: none; }
         @media (prefers-reduced-motion: reduce) { .spin, .toast-anim { animation: none !important; } }
-        button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid ${C.pinkDeep}; outline-offset: 2px; }
+        button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid ${C.pinkStrong}; outline-offset: 2px; }
       `}</style>
 
       <div className="w-full relative" style={{ maxWidth: 430, background: C.bg, minHeight: 640 }}>
@@ -911,11 +949,11 @@ export default function WishlistApp() {
         {screen === "login" && (
           <div className="flex flex-col items-center justify-center px-8" style={{ minHeight: 640 }}>
             <div className="flex items-center gap-1.5 mb-2">
-              <Heart size={20} fill={C.pinkDeep} color={C.pinkDeep} />
+              <Heart size={20} fill={C.pinkStrong} color={C.pinkStrong} />
               <span className="text-[20px] font-semibold tracking-wide" style={{ color: C.ink }}>my wishlist</span>
             </div>
             <p className="text-[13px] text-center mb-14" style={{ color: C.inkSoft }}>
-              欲しいものを、眺めるたのしさ。
+              Wishing is half the fun.
             </p>
             {loadError && (
               <div className="text-[12px] mb-4" style={{ color: C.danger }}>{loadError}</div>
@@ -924,7 +962,7 @@ export default function WishlistApp() {
               onClick={handleLogin}
               disabled={loggingIn}
               className="w-full max-w-[280px] flex items-center justify-center gap-2.5 rounded-full py-3.5"
-              style={{ background: C.card, border: `1px solid ${C.line}`, boxShadow: "0 2px 10px rgba(58,52,47,0.05)" }}
+              style={{ background: C.card, border: `1px solid ${C.line}`, boxShadow: "0 2px 10px rgba(212,100,133,0.1)" }}
             >
               {loggingIn ? (
                 <Loader2 size={16} className="spin" color={C.inkSoft} />
@@ -939,10 +977,10 @@ export default function WishlistApp() {
         )}
 
         {screen === "home" && (
-          <div className="pb-24 pt-2">
+          <div style={{ paddingTop: 8, paddingBottom: NAV_HEIGHT + 16 }}>
             <div className="px-4 mb-4">
               <div className="flex items-center gap-1.5 mb-4">
-                <Heart size={16} fill={C.pinkDeep} color={C.pinkDeep} />
+                <Heart size={16} fill={C.pinkStrong} color={C.pinkStrong} />
                 <span className="text-[16px] font-semibold" style={{ color: C.ink }}>my wishlist</span>
               </div>
               <button
@@ -951,7 +989,7 @@ export default function WishlistApp() {
                 style={{ background: C.card, border: `1px solid ${C.line}` }}
               >
                 <Search size={16} color={C.inkSoft} />
-                <span className="text-[13.5px]" style={{ color: C.inkSoft }}>欲しいものを検索</span>
+                <span className="text-[13.5px]" style={{ color: C.inkSoft }}>Search your wishlist</span>
               </button>
             </div>
 
@@ -959,10 +997,8 @@ export default function WishlistApp() {
             {myWishlist.length === 0 ? (
               <EmptyState onAdd={() => go("add")} />
             ) : (
-              <div className="grid grid-cols-2 gap-3 px-4 mb-7">
-                {myWishlist.slice(0, 4).map((p) => (
-                  <ProductCard key={p.id} product={p} onClick={() => openProduct(p.id)} />
-                ))}
+              <div className="mb-7">
+                <ProductGrid items={myWishlist.slice(0, 4)} onOpen={openProduct} minSlots={myWishlist.length <= 2 ? 2 : 0} />
               </div>
             )}
 
@@ -991,9 +1027,9 @@ export default function WishlistApp() {
         )}
 
         {screen === "list" && (
-          <div className="pb-24 pt-1">
+          <div style={{ paddingTop: 4, paddingBottom: NAV_HEIGHT + 16 }}>
             <div className="px-4">
-              <div className="text-[16px] font-semibold mb-3" style={{ color: C.ink }}>ウィッシュリスト</div>
+              <div className="text-[16px] font-semibold mb-3" style={{ color: C.ink }}>Wishlist</div>
               <div className="w-full flex items-center gap-2 rounded-full px-4 py-3 mb-3" style={{ background: C.card, border: `1px solid ${C.line}` }}>
                 <Search size={16} color={C.inkSoft} />
                 <input
@@ -1015,7 +1051,7 @@ export default function WishlistApp() {
                       key={k}
                       onClick={() => setListFilter(k)}
                       className="rounded-full px-3 py-1.5 text-[12px] whitespace-nowrap flex-shrink-0"
-                      style={listFilter === k ? { background: C.ink, color: "#fff" } : { background: C.card, color: C.inkSoft, border: `1px solid ${C.line}` }}
+                      style={listFilter === k ? { background: C.pinkStrong, color: "#fff" } : { background: C.card, color: C.inkSoft, border: `1px solid ${C.line}` }}
                     >
                       {label}
                     </button>
@@ -1040,17 +1076,13 @@ export default function WishlistApp() {
             {filteredList.length === 0 ? (
               <div className="text-center text-[13px] py-16" style={{ color: C.inkSoft }}>見つかりませんでした</div>
             ) : (
-              <div className="grid grid-cols-2 gap-3 px-4">
-                {filteredList.map((p) => (
-                  <ProductCard key={p.id} product={p} onClick={() => openProduct(p.id)} />
-                ))}
-              </div>
+              <ProductGrid items={filteredList} onOpen={openProduct} minSlots={filteredList.length <= 2 ? 2 : 0} />
             )}
           </div>
         )}
 
         {screen === "detail" && selected && (
-          <div className="pb-28">
+          <div style={{ paddingBottom: 32 }}>
             <TopBar
               title=""
               onBack={() => go("list")}
@@ -1070,7 +1102,7 @@ export default function WishlistApp() {
                 )}
               </div>
 
-              <span className="inline-block rounded-full text-[11px] px-2.5 py-1 mb-2" style={{ background: C.beige, color: C.ink }}>
+              <span className="inline-block rounded-full text-[11px] px-2.5 py-1 mb-2" style={{ background: C.beige, color: C.pinkStrong }}>
                 {categoryName(selected.categoryId)}
               </span>
               <div className="text-[19px] font-semibold mb-2" style={{ color: C.ink }}>{selected.name}</div>
@@ -1103,7 +1135,7 @@ export default function WishlistApp() {
               <button
                 onClick={() => togglePurchased(selected.id)}
                 className="w-full py-3.5 rounded-2xl text-[14.5px] font-medium mb-6"
-                style={selected.purchased ? { background: C.bg, color: C.ink, border: `1px solid ${C.line}` } : { background: C.ink, color: "#fff" }}
+                style={selected.purchased ? { background: C.bg, color: C.ink, border: `1px solid ${C.line}` } : { background: C.pinkStrong, color: "#fff" }}
               >
                 {selected.purchased ? "未購入に戻す" : "購入済みにする"}
               </button>
@@ -1141,7 +1173,7 @@ export default function WishlistApp() {
                           <span className="text-[12.5px]" style={{ color: C.inkSoft }}>{formatDate(h.date)}</span>
                           <div className="flex items-center gap-2">
                             {h.price === min && (
-                              <span className="text-[10px] rounded-full px-2 py-[2px]" style={{ background: C.pink, color: "#8A4A5E" }}>最安</span>
+                              <span className="text-[10px] rounded-full px-2 py-[2px]" style={{ background: C.pink, color: C.pinkStrong }}>最安</span>
                             )}
                             <span className="text-[13.5px] font-medium" style={{ color: C.ink }}>{formatPrice(h.price)}</span>
                           </div>
@@ -1179,7 +1211,7 @@ export default function WishlistApp() {
         )}
 
         {screen === "notifications" && (
-          <div className="pb-10">
+          <div style={{ paddingBottom: 32 }}>
             <TopBar title="通知設定" onBack={() => go("settings")} />
             <div className="px-4">
               <div className="rounded-2xl p-4" style={{ background: C.card, border: `1px solid ${C.line}` }}>
@@ -1205,11 +1237,11 @@ export default function WishlistApp() {
         )}
 
         {screen === "settings" && (
-          <div className="pb-24">
+          <div style={{ paddingBottom: NAV_HEIGHT + 16 }}>
             <TopBar title="その他" />
             <div className="px-4">
               <div className="flex items-center gap-3 rounded-2xl p-4 mb-5" style={{ background: C.card, border: `1px solid ${C.line}` }}>
-                <div className="rounded-full flex items-center justify-center flex-shrink-0" style={{ width: 44, height: 44, background: C.pink, color: "#8A4A5E", fontWeight: 600 }}>
+                <div className="rounded-full flex items-center justify-center flex-shrink-0" style={{ width: 44, height: 44, background: C.pink, color: C.pinkStrong, fontWeight: 600 }}>
                   {(session?.user?.user_metadata?.full_name || session?.user?.email || "?")[0]}
                 </div>
                 <div className="min-w-0">
@@ -1237,7 +1269,7 @@ export default function WishlistApp() {
           </div>
         )}
 
-        {["home", "list", "add", "settings"].includes(screen) && <BottomNav screen={screen} go={go} />}
+        {["home", "list", "settings"].includes(screen) && <BottomNav screen={screen} go={go} />}
       </div>
     </div>
   );
@@ -1249,7 +1281,7 @@ function Toggle({ checked, onChange, disabled }) {
       onClick={onChange}
       disabled={disabled}
       className="rounded-full relative flex-shrink-0"
-      style={{ width: 42, height: 24, background: checked ? C.ink : C.beige, opacity: disabled ? 0.4 : 1, transition: "background 0.15s" }}
+      style={{ width: 42, height: 24, background: checked ? C.pinkStrong : C.beige, opacity: disabled ? 0.4 : 1, transition: "background 0.15s" }}
     >
       <span
         className="absolute rounded-full"
@@ -1276,7 +1308,7 @@ function EmptyState({ onAdd }) {
     <div className="mx-4 rounded-2xl flex flex-col items-center justify-center py-12 mb-7" style={{ background: C.card, border: `1px dashed ${C.beigeDeep}` }}>
       <Heart size={22} color={C.beigeDeep} strokeWidth={1.5} />
       <p className="text-[12.5px] mt-3 mb-4" style={{ color: C.inkSoft }}>まだ何も登録されていません</p>
-      <button onClick={onAdd} className="rounded-full px-4 py-2 text-[12.5px] font-medium" style={{ background: C.ink, color: "#fff" }}>
+      <button onClick={onAdd} className="rounded-full px-4 py-2 text-[12.5px] font-medium" style={{ background: C.pinkStrong, color: "#fff" }}>
         + 欲しいものを追加
       </button>
     </div>
@@ -1290,7 +1322,7 @@ function CategoriesScreen({ categories, products, onBack, onAdd, onRename, onDel
   const countFor = (id) => products.filter((p) => p.categoryId === id).length;
 
   return (
-    <div className="pb-10">
+    <div style={{ paddingBottom: 32 }}>
       <TopBar title="カテゴリー管理" onBack={onBack} />
       <div className="px-4">
         <div className="flex gap-2 mb-5">
@@ -1305,7 +1337,7 @@ function CategoriesScreen({ categories, products, onBack, onAdd, onRename, onDel
             onClick={() => { onAdd(newName); setNewName(""); }}
             disabled={!newName.trim()}
             className="rounded-2xl px-4 flex items-center justify-center"
-            style={{ background: C.ink, opacity: newName.trim() ? 1 : 0.4 }}
+            style={{ background: C.pinkStrong, opacity: newName.trim() ? 1 : 0.4 }}
           >
             <Plus size={17} color="#fff" />
           </button>
