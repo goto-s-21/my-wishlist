@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
 import { uploadProductImage } from "./lib/uploadImage";
+import NotificationSettings from "./components/NotificationSettings";
 
 /* ---------------------------------------------------------
    Design tokens — soft pink, Korean-style, minimal
