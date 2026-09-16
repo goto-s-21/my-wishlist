@@ -45,7 +45,7 @@ export default function NotificationSettings({ session }) {
   }
 
   return (
-    <div className="min-h-screen bg-[#fdf6f3] px-5 py-6 pb-24">
+    <div className="pb-2">
       <h1 className="text-lg font-semibold text-neutral-800 mb-1 flex items-center gap-2">
         <Heart size={18} className="text-rose-400" fill="currentColor" />
         通知設定
