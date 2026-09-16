@@ -944,7 +944,7 @@ export default function WishlistApp() {
   }
 
   return (
-    <div className="w-full flex justify-center" style={{ background: "#F7C9D6", minHeight: 640 }}>
+    <div className="w-full relative" style={{ maxWidth: 430, background: C.bg, minHeight: "100vh" }}>
       <style>{`
         * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", "Noto Sans JP", sans-serif; }
         button { -webkit-tap-highlight-color: transparent; }
