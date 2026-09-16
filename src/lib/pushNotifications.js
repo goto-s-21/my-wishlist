@@ -36,6 +36,14 @@ export async function subscribeToPush(userId, vapidPublicKey) {
   if (!canUsePush()) {
     throw new Error('この環境ではプッシュ通知を利用できません');
   }
+
+  const cleanedKey = (vapidPublicKey || '').trim();
+  console.log('VAPID KEY DEBUG:', JSON.stringify(cleanedKey), 'length=', cleanedKey.length);
+
+  if (!cleanedKey) {
+    throw new Error('VAPID公開鍵が設定されていません（環境変数VITE_VAPID_PUBLIC_KEYを確認してください）');
+  }
+
   const permission = await Notification.requestPermission();
   if (permission !== 'granted') {
     throw new Error('通知が許可されませんでした');
@@ -46,9 +54,20 @@ export async function subscribeToPush(userId, vapidPublicKey) {
 
   let sub = await reg.pushManager.getSubscription();
   if (!sub) {
+    let keyBytes;
+    try {
+      keyBytes = urlBase64ToUint8Array(cleanedKey);
+      console.log('VAPID KEY BYTES LENGTH:', keyBytes.length);
+    } catch (e) {
+      console.error('VAPID KEY DECODE ERROR:', e);
+      throw new Error('VAPID公開鍵の形式が正しくありません（デコードに失敗しました）');
+    }
+    if (keyBytes.length !== 65) {
+      throw new Error(`VAPID公開鍵の長さが不正です（期待値65バイト、実際${keyBytes.length}バイト）。鍵を再生成してください。`);
+    }
     sub = await reg.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+      applicationServerKey: keyBytes,
     });
   }
 
