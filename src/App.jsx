@@ -5,11 +5,10 @@ import {
   Bell, Tag, LogOut, RotateCcw, X, Check, ArrowDownRight,
   ShoppingBag, ChevronRight, Loader2
 } from "lucide-react";
+import { supabase } from "./lib/supabase";
 
 /* ---------------------------------------------------------
-   Design tokens (brief: 韓国っぽい × 大人可愛い × シンプル)
-   Tailwind here is layout/spacing only — colors via inline
-   style since this environment has no Tailwind JIT compiler.
+   Design tokens (韓国っぽい × 大人可愛い × シンプル)
 --------------------------------------------------------- */
 const C = {
   bg: "#FAF6F0",
@@ -24,24 +23,12 @@ const C = {
   danger: "#C97B7B",
 };
 
-const STORAGE_KEY = "wishlist-app-data";
-const SONOTA_ID = "cat_sonota";
+const SONOTA_NAME = "その他";
 
-const DEFAULT_CATEGORIES = [
-  { id: "cat_fuku", name: "服" },
-  { id: "cat_cosme", name: "コスメ" },
-  { id: "cat_beauty", name: "美容" },
-  { id: "cat_kaden", name: "家電" },
-  { id: "cat_pc", name: "PC・スマホ" },
-  { id: "cat_book", name: "本" },
-  { id: "cat_food", name: "食品" },
-  { id: "cat_life", name: "生活用品" },
-  { id: SONOTA_ID, name: "その他" },
+const DEFAULT_CATEGORY_NAMES = [
+  "服", "コスメ", "美容", "家電", "PC・スマホ", "本", "食品", "生活用品", SONOTA_NAME,
 ];
 
-function uid(prefix) {
-  return prefix + "_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-}
 function formatPrice(n) {
   if (n === null || n === undefined || n === "") return null;
   return "¥" + Number(n).toLocaleString("ja-JP");
@@ -55,56 +42,6 @@ function isDropped(p) {
 }
 function dropAmount(p) {
   return Number(p.initialPrice) - Number(p.price);
-}
-function daysAgo(n) {
-  return Date.now() - n * 24 * 60 * 60 * 1000;
-}
-
-function seedProducts() {
-  return [
-    {
-      id: uid("p"), name: "ニットカーディガン", image: "https://picsum.photos/seed/knit-cardigan/500/500",
-      price: 4980, initialPrice: 5980, url: "https://example.com/item/cardigan",
-      categoryId: "cat_fuku", priority: 4, memo: "秋用に、色違いも気になってる。",
-      purchased: false, priceCheckEnabled: true, createdAt: daysAgo(1),
-      history: [
-        { date: daysAgo(14), price: 5980, source: "initial" },
-        { date: daysAgo(6), price: 5480, source: "auto" },
-        { date: daysAgo(1), price: 4980, source: "auto" },
-      ],
-    },
-    {
-      id: uid("p"), name: "ワイヤレスイヤホン", image: "https://picsum.photos/seed/earbuds-wl/500/500",
-      price: 12800, initialPrice: 12800, url: "https://example.com/item/earbuds",
-      categoryId: "cat_pc", priority: 5, memo: "",
-      purchased: false, priceCheckEnabled: true, createdAt: daysAgo(2),
-      history: [{ date: daysAgo(9), price: 12800, source: "initial" }],
-    },
-    {
-      id: uid("p"), name: "ハンドクリーム", image: "https://picsum.photos/seed/hand-cream/500/500",
-      price: 1200, initialPrice: 1200, url: "",
-      categoryId: "cat_cosme", priority: 3, memo: "香り違いも見たい",
-      purchased: false, priceCheckEnabled: false, createdAt: daysAgo(3),
-      history: [{ date: daysAgo(3), price: 1200, source: "initial" }],
-    },
-    {
-      id: uid("p"), name: "電気ケトル", image: "https://picsum.photos/seed/kettle-elec/500/500",
-      price: 3480, initialPrice: 3980, url: "https://example.com/item/kettle",
-      categoryId: "cat_kaden", priority: 2, memo: "",
-      purchased: true, priceCheckEnabled: false, createdAt: daysAgo(20),
-      history: [
-        { date: daysAgo(20), price: 3980, source: "initial" },
-        { date: daysAgo(12), price: 3480, source: "auto" },
-      ],
-    },
-    {
-      id: uid("p"), name: "気になる新刊セット", image: "https://picsum.photos/seed/book-set/500/500",
-      price: null, initialPrice: null, url: "",
-      categoryId: "cat_book", priority: 1, memo: "発売したら確認する",
-      purchased: false, priceCheckEnabled: false, createdAt: daysAgo(0.2),
-      history: [],
-    },
-  ];
 }
 
 function resizeImage(file, maxSize = 900, quality = 0.78) {
@@ -133,6 +70,56 @@ function resizeImage(file, maxSize = 900, quality = 0.78) {
     };
     reader.readAsDataURL(file);
   });
+}
+
+/* ---------------------------------------------------------
+   Supabase data helpers
+--------------------------------------------------------- */
+function rowToProduct(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    image: row.image_url || "",
+    price: row.current_price,
+    initialPrice: row.initial_price,
+    url: row.product_url || "",
+    categoryId: row.category_id,
+    priority: row.priority,
+    memo: row.memo || "",
+    purchased: row.purchased,
+    priceCheckEnabled: row.price_check_enabled,
+    createdAt: new Date(row.created_at).getTime(),
+    history: (row.price_history || [])
+      .slice()
+      .sort((a, b) => new Date(a.checked_at) - new Date(b.checked_at))
+      .map((h) => ({ date: new Date(h.checked_at).getTime(), price: h.price, source: h.source })),
+  };
+}
+
+async function ensureDefaultCategories(userId) {
+  const { data: existing, error } = await supabase
+    .from("categories")
+    .select("*")
+    .eq("user_id", userId);
+  if (error) throw error;
+  if (existing && existing.length > 0) return existing;
+
+  const rows = DEFAULT_CATEGORY_NAMES.map((name) => ({ user_id: userId, name }));
+  const { data: inserted, error: insertError } = await supabase
+    .from("categories")
+    .insert(rows)
+    .select();
+  if (insertError) throw insertError;
+  return inserted;
+}
+
+async function fetchProducts() {
+  const { data, error } = await supabase
+    .from("products")
+    .select("*, price_history(*)")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data || []).map(rowToProduct);
 }
 
 /* ---------------------------------------------------------
@@ -375,7 +362,7 @@ function ConfirmModal({ dialog, onCancel }) {
    Product form (add / edit)
 --------------------------------------------------------- */
 function ProductForm({ initial, categories, isNew, onCancel, onSave, onManageCategories }) {
-  const [mode, setMode] = useState("manual"); // 'url' | 'manual' — add-only
+  const [mode, setMode] = useState("manual");
   const [urlDraft, setUrlDraft] = useState("");
   const [fetching, setFetching] = useState(false);
   const [fetchMsg, setFetchMsg] = useState("");
@@ -389,6 +376,7 @@ function ProductForm({ initial, categories, isNew, onCancel, onSave, onManageCat
   const [priority, setPriority] = useState(initial?.priority ?? 3);
   const [memo, setMemo] = useState(initial?.memo || "");
   const [nameError, setNameError] = useState(false);
+  const [saving, setSaving] = useState(false);
   const fileRef = useRef(null);
 
   async function handleFetchUrl() {
@@ -396,18 +384,13 @@ function ProductForm({ initial, categories, isNew, onCancel, onSave, onManageCat
     setFetching(true);
     setFetchMsg("");
     try {
-      const res = await fetch(urlDraft.trim());
-      const html = await res.text();
-      const og = (prop) => {
-        const m = html.match(new RegExp(`property=["']og:${prop}["'][^>]*content=["']([^"']+)["']`, "i"));
-        return m ? m[1] : "";
-      };
-      const t = og("title");
-      const im = og("image");
-      if (t) setName(t);
-      if (im) setImage(im);
+      const res = await fetch(`/api/fetch-product-info?url=${encodeURIComponent(urlDraft.trim())}`);
+      const info = await res.json();
+      if (info.title) setName(info.title);
+      if (info.image) setImage(info.image);
+      if (info.price) setPrice(String(Math.round(Number(info.price))));
       setUrl(urlDraft.trim());
-      setFetchMsg(t || im ? "取得できた情報を反映しました。残りは入力してください。" : "自動取得できませんでした。情報を入力してください。");
+      setFetchMsg(info.title || info.image ? "取得できた情報を反映しました。残りは入力してください。" : "自動取得できませんでした。情報を入力してください。");
     } catch (e) {
       setUrl(urlDraft.trim());
       setFetchMsg("自動取得できませんでした（サイトの仕様により取得できない場合があります）。情報を入力してください。");
@@ -428,13 +411,18 @@ function ProductForm({ initial, categories, isNew, onCancel, onSave, onManageCat
     }
   }
 
-  function handleSave() {
+  async function handleSave() {
     if (!name.trim()) {
       setNameError(true);
       return;
     }
+    setSaving(true);
     const priceNum = price === "" || price === null ? null : Number(price);
-    onSave({ name: name.trim(), image, price: priceNum, url: url.trim(), categoryId, priority, memo: memo.trim() });
+    try {
+      await onSave({ name: name.trim(), image, price: priceNum, url: url.trim(), categoryId, priority, memo: memo.trim() });
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -493,7 +481,6 @@ function ProductForm({ initial, categories, isNew, onCancel, onSave, onManageCat
             </div>
           )}
 
-          {/* image */}
           <div>
             <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleImagePick} />
             <button
@@ -584,7 +571,13 @@ function ProductForm({ initial, categories, isNew, onCancel, onSave, onManageCat
           className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full px-4 pt-3"
           style={{ maxWidth: 430, background: `linear-gradient(180deg, rgba(250,246,240,0), ${C.bg} 30%)`, paddingBottom: "calc(env(safe-area-inset-bottom, 10px) + 14px)" }}
         >
-          <button onClick={handleSave} className="w-full py-3.5 rounded-2xl text-[15px] font-medium" style={{ background: C.ink, color: "#fff" }}>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="w-full py-3.5 rounded-2xl text-[15px] font-medium flex items-center justify-center gap-2"
+            style={{ background: C.ink, color: "#fff", opacity: saving ? 0.6 : 1 }}
+          >
+            {saving && <Loader2 size={16} className="spin" />}
             保存する
           </button>
         </div>
@@ -616,12 +609,14 @@ function Field({ label, children, required, error, area }) {
 --------------------------------------------------------- */
 export default function WishlistApp() {
   const [booted, setBooted] = useState(false);
-  const [data, setData] = useState({
-    user: null,
-    products: [],
-    categories: DEFAULT_CATEGORIES,
-    notifSettings: { priceDropEnabled: true },
-  });
+  const [session, setSession] = useState(null);
+  const [loggingIn, setLoggingIn] = useState(false);
+  const [loadError, setLoadError] = useState("");
+
+  const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [notifSettings, setNotifSettings] = useState({ priceDropEnabled: true });
+
   const [screen, setScreen] = useState("login");
   const [selectedId, setSelectedId] = useState(null);
   const [listFilter, setListFilter] = useState("all");
@@ -630,31 +625,38 @@ export default function WishlistApp() {
   const [toast, setToast] = useState(null);
   const [dialog, setDialog] = useState(null);
   const [checkMsg, setCheckMsg] = useState("");
-  const [loggingIn, setLoggingIn] = useState(false);
 
   useEffect(() => {
-    (async () => {
-      try {
-        const res = await window.storage.get(STORAGE_KEY, false);
-        if (res && res.value) {
-          const parsed = JSON.parse(res.value);
-          setData((prev) => ({ ...prev, ...parsed }));
-          if (parsed.user) setScreen("home");
-        }
-      } catch (e) {
-        // no saved data yet — start fresh
-      }
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
       setBooted(true);
-    })();
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, s) => {
+      setSession(s);
+    });
+    return () => listener.subscription.unsubscribe();
   }, []);
 
-  function updateData(patch) {
-    setData((prev) => {
-      const next = typeof patch === "function" ? patch(prev) : { ...prev, ...patch };
-      window.storage.set(STORAGE_KEY, JSON.stringify(next), false).catch(() => {});
-      return next;
-    });
-  }
+  useEffect(() => {
+    if (!session) {
+      setScreen("login");
+      setProducts([]);
+      setCategories([]);
+      return;
+    }
+    (async () => {
+      try {
+        setLoadError("");
+        const cats = await ensureDefaultCategories(session.user.id);
+        setCategories(cats);
+        const prods = await fetchProducts();
+        setProducts(prods);
+        setScreen("home");
+      } catch (e) {
+        setLoadError("データの読み込みに失敗しました。読み込み直してください。");
+      }
+    })();
+  }, [session]);
 
   function go(key) {
     setScreen(key);
@@ -668,38 +670,36 @@ export default function WishlistApp() {
   }
 
   /* ---- auth ---- */
-  function handleLogin() {
+  async function handleLogin() {
     setLoggingIn(true);
-    setTimeout(() => {
-      updateData((prev) => ({
-        ...prev,
-        user: { name: "さつき", email: "satsuki@example.com" },
-        products: prev.products.length ? prev.products : seedProducts(),
-      }));
-      setLoggingIn(false);
-      setScreen("home");
-    }, 700);
+    await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: window.location.origin },
+    });
   }
   function handleLogout() {
     setDialog({
       title: "ログアウトしますか？",
       message: "データはこのアカウントに保存されたままです。",
       confirmLabel: "ログアウト",
-      onConfirm: () => {
-        updateData((prev) => ({ ...prev, user: null }));
+      onConfirm: async () => {
+        await supabase.auth.signOut();
         setDialog(null);
-        setScreen("login");
       },
     });
   }
   function handleResetData() {
     setDialog({
       title: "データをリセットしますか？",
-      message: "登録した商品とカテゴリーがすべて削除されます。この操作は取り消せません。",
+      message: "登録した商品がすべて削除されます。この操作は取り消せません。",
       confirmLabel: "リセットする",
       danger: true,
-      onConfirm: () => {
-        updateData((prev) => ({ ...prev, products: [], categories: DEFAULT_CATEGORIES }));
+      onConfirm: async () => {
+        const ids = products.map((p) => p.id);
+        if (ids.length > 0) {
+          await supabase.from("products").delete().in("id", ids);
+        }
+        setProducts([]);
         setDialog(null);
         setScreen("home");
       },
@@ -707,39 +707,70 @@ export default function WishlistApp() {
   }
 
   /* ---- products ---- */
-  function addProduct(fields) {
-    const now = Date.now();
-    const p = {
-      id: uid("p"),
+  async function addProduct(fields) {
+    const now = new Date().toISOString();
+    const insertRow = {
+      user_id: session.user.id,
       name: fields.name,
-      image: fields.image || "",
-      price: fields.price,
-      initialPrice: fields.price,
-      url: fields.url || "",
-      categoryId: fields.categoryId,
+      image_url: fields.image || null,
+      current_price: fields.price,
+      initial_price: fields.price,
+      product_url: fields.url || null,
+      category_id: fields.categoryId,
       priority: fields.priority,
-      memo: fields.memo || "",
+      memo: fields.memo || null,
       purchased: false,
-      priceCheckEnabled: Boolean(fields.url) && fields.price != null,
-      createdAt: now,
-      history: fields.price != null ? [{ date: now, price: fields.price, source: "initial" }] : [],
+      price_check_enabled: Boolean(fields.url) && fields.price != null,
     };
-    updateData((prev) => ({ ...prev, products: [p, ...prev.products] }));
-    openProduct(p.id);
+    const { data: inserted, error } = await supabase
+      .from("products")
+      .insert(insertRow)
+      .select()
+      .single();
+    if (error) { setCheckMsg("保存に失敗しました。"); return; }
+
+    if (fields.price != null) {
+      await supabase.from("price_history").insert({
+        product_id: inserted.id,
+        price: fields.price,
+        checked_at: now,
+        source: "initial",
+      });
+    }
+    const prods = await fetchProducts();
+    setProducts(prods);
+    openProduct(inserted.id);
   }
 
-  function saveEdit(id, fields) {
-    updateData((prev) => ({
-      ...prev,
-      products: prev.products.map((p) => {
-        if (p.id !== id) return p;
-        const priceChanged = fields.price !== p.price;
-        const history = priceChanged && fields.price != null
-          ? [...p.history, { date: Date.now(), price: fields.price, source: "manual_edit" }]
-          : p.history;
-        return { ...p, ...fields, history };
-      }),
-    }));
+  async function saveEdit(id, fields) {
+    const existing = products.find((p) => p.id === id);
+    const priceChanged = fields.price !== existing.price;
+
+    const { error } = await supabase
+      .from("products")
+      .update({
+        name: fields.name,
+        image_url: fields.image || null,
+        current_price: fields.price,
+        product_url: fields.url || null,
+        category_id: fields.categoryId,
+        priority: fields.priority,
+        memo: fields.memo || null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id);
+    if (error) { setCheckMsg("更新に失敗しました。"); return; }
+
+    if (priceChanged && fields.price != null) {
+      await supabase.from("price_history").insert({
+        product_id: id,
+        price: fields.price,
+        checked_at: new Date().toISOString(),
+        source: "manual_edit",
+      });
+    }
+    const prods = await fetchProducts();
+    setProducts(prods);
     openProduct(id);
   }
 
@@ -749,26 +780,27 @@ export default function WishlistApp() {
       message: "削除すると元に戻せません。",
       confirmLabel: "削除する",
       danger: true,
-      onConfirm: () => {
-        updateData((prev) => ({ ...prev, products: prev.products.filter((p) => p.id !== id) }));
+      onConfirm: async () => {
+        await supabase.from("products").delete().eq("id", id);
+        setProducts((prev) => prev.filter((p) => p.id !== id));
         setDialog(null);
         setScreen("list");
       },
     });
   }
 
-  function togglePurchased(id) {
-    updateData((prev) => ({
-      ...prev,
-      products: prev.products.map((p) => (p.id === id ? { ...p, purchased: !p.purchased } : p)),
-    }));
+  async function togglePurchased(id) {
+    const target = products.find((p) => p.id === id);
+    const next = !target.purchased;
+    await supabase.from("products").update({ purchased: next }).eq("id", id);
+    setProducts((prev) => prev.map((p) => (p.id === id ? { ...p, purchased: next } : p)));
   }
 
-  function togglePriceCheck(id) {
-    updateData((prev) => ({
-      ...prev,
-      products: prev.products.map((p) => (p.id === id ? { ...p, priceCheckEnabled: !p.priceCheckEnabled } : p)),
-    }));
+  async function togglePriceCheck(id) {
+    const target = products.find((p) => p.id === id);
+    const next = !target.priceCheckEnabled;
+    await supabase.from("products").update({ price_check_enabled: next }).eq("id", id);
+    setProducts((prev) => prev.map((p) => (p.id === id ? { ...p, priceCheckEnabled: next } : p)));
   }
 
   function simulateCheck(product) {
@@ -777,62 +809,47 @@ export default function WishlistApp() {
       setCheckMsg("この商品は自動チェックの対象外です（URL・価格・チェックONが必要）。");
       return;
     }
-    const willDrop = Math.random() < 0.6;
-    if (!willDrop) {
-      setCheckMsg("価格に変化はありませんでした。");
-      return;
-    }
-    const rate = 0.85 + Math.random() * 0.1;
-    const newPrice = Math.max(100, Math.round((product.price * rate) / 10) * 10);
-    updateData((prev) => ({
-      ...prev,
-      products: prev.products.map((p) =>
-        p.id === product.id
-          ? { ...p, price: newPrice, history: [...p.history, { date: Date.now(), price: newPrice, source: "auto" }] }
-          : p
-      ),
-    }));
-    setCheckMsg("");
-    if (data.notifSettings.priceDropEnabled) {
-      setToast({
-        productId: product.id,
-        body: `${product.name}が安くなりました`,
-        priceLine: `${formatPrice(product.price)} → ${formatPrice(newPrice)}`,
-        offLine: `${formatPrice(product.price - newPrice)} OFF`,
-      });
-    }
+    setCheckMsg("自動チェックは1日1回、サーバー側で実行されます。今すぐの手動確認はこのプレビューではサポートしていません。");
   }
 
   /* ---- categories ---- */
-  function addCategory(name) {
-    if (!name.trim()) return;
-    updateData((prev) => ({ ...prev, categories: [...prev.categories.filter(c => c.id !== SONOTA_ID), { id: uid("cat"), name: name.trim() }, prev.categories.find(c => c.id === SONOTA_ID)] }));
+  async function addCategory(name) {
+    if (!name.trim() || !session) return;
+    const { data: inserted, error } = await supabase
+      .from("categories")
+      .insert({ user_id: session.user.id, name: name.trim() })
+      .select()
+      .single();
+    if (!error) setCategories((prev) => [...prev, inserted]);
   }
-  function renameCategory(id, name) {
+  async function renameCategory(id, name) {
     if (!name.trim()) return;
-    updateData((prev) => ({ ...prev, categories: prev.categories.map((c) => (c.id === id ? { ...c, name: name.trim() } : c)) }));
+    const { error } = await supabase.from("categories").update({ name: name.trim() }).eq("id", id);
+    if (!error) setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, name: name.trim() } : c)));
   }
   function deleteCategory(id) {
-    if (id === SONOTA_ID) return;
+    const target = categories.find((c) => c.id === id);
+    if (target?.name === SONOTA_NAME) return;
     setDialog({
       title: "このカテゴリーを削除しますか？",
       message: "このカテゴリーの商品は「その他」に移動します。",
       confirmLabel: "削除する",
       danger: true,
-      onConfirm: () => {
-        updateData((prev) => ({
-          ...prev,
-          categories: prev.categories.filter((c) => c.id !== id),
-          products: prev.products.map((p) => (p.categoryId === id ? { ...p, categoryId: SONOTA_ID } : p)),
-        }));
+      onConfirm: async () => {
+        const sonota = categories.find((c) => c.name === SONOTA_NAME);
+        const affected = products.filter((p) => p.categoryId === id);
+        if (sonota && affected.length > 0) {
+          await supabase.from("products").update({ category_id: sonota.id }).in("id", affected.map((p) => p.id));
+        }
+        await supabase.from("categories").delete().eq("id", id);
+        setCategories((prev) => prev.filter((c) => c.id !== id));
+        setProducts((prev) => prev.map((p) => (p.categoryId === id && sonota ? { ...p, categoryId: sonota.id } : p)));
         setDialog(null);
       },
     });
   }
 
-  const products = data.products;
-  const categories = data.categories;
-  const categoryName = (id) => categories.find((c) => c.id === id)?.name || "その他";
+  const categoryName = (id) => categories.find((c) => c.id === id)?.name || SONOTA_NAME;
 
   const myWishlist = useMemo(
     () => products.filter((p) => !p.purchased).sort((a, b) => b.priority - a.priority || b.createdAt - a.createdAt),
@@ -900,6 +917,9 @@ export default function WishlistApp() {
             <p className="text-[13px] text-center mb-14" style={{ color: C.inkSoft }}>
               欲しいものを、眺めるたのしさ。
             </p>
+            {loadError && (
+              <div className="text-[12px] mb-4" style={{ color: C.danger }}>{loadError}</div>
+            )}
             <button
               onClick={handleLogin}
               disabled={loggingIn}
@@ -1105,7 +1125,7 @@ export default function WishlistApp() {
                   className="w-full mt-2 py-2.5 rounded-xl text-[12.5px]"
                   style={{ background: C.bg, color: C.ink }}
                 >
-                  今すぐ価格を確認する（プレビュー）
+                  価格チェックについて
                 </button>
                 {checkMsg && <div className="text-[11.5px] mt-2" style={{ color: C.inkSoft }}>{checkMsg}</div>}
               </div>
@@ -1169,15 +1189,15 @@ export default function WishlistApp() {
                     <span className="text-[13.5px] font-medium" style={{ color: C.ink }}>値下がり通知</span>
                   </div>
                   <Toggle
-                    checked={data.notifSettings.priceDropEnabled}
-                    onChange={() => updateData((prev) => ({ ...prev, notifSettings: { priceDropEnabled: !prev.notifSettings.priceDropEnabled } }))}
+                    checked={notifSettings.priceDropEnabled}
+                    onChange={() => setNotifSettings((prev) => ({ priceDropEnabled: !prev.priceDropEnabled }))}
                   />
                 </div>
                 <p className="text-[12px] mt-2 leading-relaxed" style={{ color: C.inkSoft }}>
                   登録した商品の価格が下がったときにお知らせします。
                 </p>
                 <p className="text-[11px] mt-2 leading-relaxed" style={{ color: C.inkSoft }}>
-                  このプロトタイプでは、値下がり時にアプリ内でお知らせを表示します（実際のスマートフォンへのプッシュ通知やメール通知には本番環境の構築が必要です）。
+                  Web PushやメールでのプッシュはVercelの日次チェックが動くようになってから届くようになります。
                 </p>
               </div>
             </div>
@@ -1190,11 +1210,13 @@ export default function WishlistApp() {
             <div className="px-4">
               <div className="flex items-center gap-3 rounded-2xl p-4 mb-5" style={{ background: C.card, border: `1px solid ${C.line}` }}>
                 <div className="rounded-full flex items-center justify-center flex-shrink-0" style={{ width: 44, height: 44, background: C.pink, color: "#8A4A5E", fontWeight: 600 }}>
-                  {data.user?.name?.[0] || "?"}
+                  {(session?.user?.user_metadata?.full_name || session?.user?.email || "?")[0]}
                 </div>
                 <div className="min-w-0">
-                  <div className="text-[14px] font-medium truncate" style={{ color: C.ink }}>{data.user?.name}</div>
-                  <div className="text-[12px] truncate" style={{ color: C.inkSoft }}>{data.user?.email}</div>
+                  <div className="text-[14px] font-medium truncate" style={{ color: C.ink }}>
+                    {session?.user?.user_metadata?.full_name || "ユーザー"}
+                  </div>
+                  <div className="text-[12px] truncate" style={{ color: C.inkSoft }}>{session?.user?.email}</div>
                 </div>
               </div>
 
@@ -1209,7 +1231,7 @@ export default function WishlistApp() {
               </div>
 
               <p className="text-[11px] leading-relaxed px-1" style={{ color: C.inkSoft }}>
-                商品データはこのプロトタイプ環境のアカウントに保存されます。本番運用ではSupabase等のクラウドデータベースに保存します。
+                商品データはSupabase（あなたのGoogleアカウント）に安全に保存されます。
               </p>
             </div>
           </div>
@@ -1291,7 +1313,7 @@ function CategoriesScreen({ categories, products, onBack, onAdd, onRename, onDel
 
         <div className="rounded-2xl overflow-hidden" style={{ background: C.card, border: `1px solid ${C.line}` }}>
           {categories.map((c, i) => {
-            const protected_ = c.id === "cat_sonota";
+            const protected_ = c.name === SONOTA_NAME;
             const editing = editingId === c.id;
             return (
               <div key={c.id} className="flex items-center justify-between px-4 py-3" style={{ borderTop: i > 0 ? `1px solid ${C.line}` : "none" }}>
