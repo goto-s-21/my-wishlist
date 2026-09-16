@@ -18,16 +18,23 @@ export default async function handler(req, res) {
       if (m2) return m2[1];
       return null;
     };
+    const metaByName = (name) => {
+      const m = html.match(new RegExp(`<meta[^>]*name=["']${name}["'][^>]*content=["']([^"']+)["']`, 'i'));
+      return m ? m[1] : null;
+    };
+    const cleanUrl = (s) => s ? s.replace(/\\u0026/g, '&').replace(/\\\//g, '/') : s;
 
     let title = og('title');
     let image = og('image');
-    let price = og('price:amount') || og('price');
+    let price = og('price:amount') || og('price') || metaByName('product:price:amount');
 
-    const isAmazon = /amazon\.co\.jp|amazon\.com/i.test(url);
-    if (isAmazon) {
+    const host = (() => {
+      try { return new URL(url).hostname; } catch { return ''; }
+    })();
+
+    if (/amazon\.co\.jp|amazon\.com/i.test(host)) {
       const titleMatch =
-        html.match(/id=["']productTitle["'][^>]*>\s*([^<]+?)\s*</i) ||
-        html.match(/<span[^>]*id=["']productTitle["'][^>]*>([^<]+)</i);
+        html.match(/id=["']productTitle["'][^>]*>\s*([^<]+?)\s*</i);
       if (titleMatch) title = titleMatch[1].trim();
 
       const priceMatch =
@@ -39,20 +46,47 @@ export default async function handler(req, res) {
         html.match(/id=["']landingImage["'][^>]*src=["']([^"']+)["']/i) ||
         html.match(/"hiRes"\s*:\s*"([^"]+)"/i) ||
         html.match(/"large"\s*:\s*"([^"]+)"/i);
-      if (imgMatch) image = imgMatch[1].replace(/\\u0026/g, '&').replace(/\\\//g, '/');
+      if (imgMatch) image = cleanUrl(imgMatch[1]);
 
       if (title === 'Amazon' || title === 'Amazon.co.jp') title = null;
+    } else if (/rakuten\.co\.jp/i.test(host)) {
+      // Rakuten Ichiba generally exposes decent OGP + price meta tags already.
+      if (!price) {
+        const priceMatch = html.match(/itemprop=["']price["'][^>]*content=["']([\d.,]+)["']/i);
+        if (priceMatch) price = priceMatch[1].replace(/,/g, '');
+      }
+    } else if (/zozo\.jp/i.test(host)) {
+      if (!title) {
+        const t = html.match(/<h1[^>]*class=["'][^"']*p-goods-name[^"']*["'][^>]*>([^<]+)</i);
+        if (t) title = t[1].trim();
+      }
+      if (!price) {
+        const p = html.match(/class=["'][^"']*p-goods-price[^"']*["'][^>]*>[^\d]*([\d,]+)/i);
+        if (p) price = p[1].replace(/,/g, '');
+      }
+    } else if (/mercari\.com/i.test(host)) {
+      // Mercari renders via client-side JS; rely on OGP + any embedded JSON price.
+      if (!price) {
+        const p = html.match(/"price"\s*:\s*"?(\d+)"?/i);
+        if (p) price = p[1];
+      }
+    } else if (/qoo10\.jp/i.test(host)) {
+      if (!price) {
+        const p = html.match(/class=["'][^"']*price_real[^"']*["'][^>]*>[^\d]*([\d,]+)/i) ||
+                   html.match(/"salePrice"\s*:\s*"?([\d,.]+)"?/i);
+        if (p) price = p[1].replace(/,/g, '');
+      }
     }
 
     if (!title) {
       const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
       if (titleMatch) title = titleMatch[1].trim();
     }
-
     if (!price) {
       const priceMatch = html.match(/<meta[^>]*(?:property|name)=["'](?:product:price:amount|priceCurrency|price)["'][^>]*content=["']([\d.,]+)["']/i);
       if (priceMatch) price = priceMatch[1].replace(/,/g, '');
     }
+    image = cleanUrl(image);
 
     res.status(200).json({ title, image, price });
   } catch (e) {
