@@ -1318,22 +1318,10 @@ function Toggle({ checked, onChange, disabled }) {
 function SettingsRow({ icon: Icon, label, onClick, border, danger }) {
   return (
     <button onClick={onClick} className="w-full flex items-center justify-between px-4 py-3.5" style={{ borderTop: border ? `1px solid ${C.line}` : "none" }}>
-      <div
-  className="rounded-2xl overflow-hidden mb-5"
-  style={{ background: C.card, border: `1px solid ${C.line}` }}
->
-  <SettingsRow
-    icon={Tag}
-    label="カテゴリー管理"
-    onClick={() => go('categories')}
-  />
-  <SettingsRow
-    icon={Bell}
-    label="通知設定"
-    onClick={() => go('notifications')}
-    border
-  />
-</div>
+      <div className="flex items-center gap-2.5">
+        <Icon size={16} color={danger ? C.danger : C.ink} />
+        <span className="text-[13.5px]" style={{ color: danger ? C.danger : C.ink }}>{label}</span>
+      </div>
       <ChevronRight size={15} color={C.inkSoft} />
     </button>
   );
