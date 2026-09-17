@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   Search, Heart, Plus, Home as HomeIcon, Settings as SettingsIcon,
-  ChevronLeft, Pencil, Trash2, ImagePlus, Link2, ExternalLink,
+  ChevronLeft, ChevronDown, Pencil, Trash2, ImagePlus, Link2, ExternalLink,
   Bell, Tag, LogOut, RotateCcw, X, Check, ArrowDownRight,
   ShoppingBag, ChevronRight, Loader2
 } from "lucide-react";
@@ -437,18 +437,12 @@ function ProductForm({ initial, categories, isNew, onCancel, onSave, onManageCat
       setPrice(nextPrice);
       setUrl(urlDraft.trim());
       setFetchMsg(nextMsg);
-
-      requestAnimationFrame(() => {
-        setShowFields(true);
-      });
+      setShowFields(true);
     } catch (e) {
       setFetching(false);
       setUrl(urlDraft.trim());
       setFetchMsg("自動取得できませんでした（サイトの仕様により取得できない場合があります）。情報を入力してください。");
-
-      requestAnimationFrame(() => {
-        setShowFields(true);
-      });
+      setShowFields(true);
     }
   }
 
@@ -597,17 +591,20 @@ function ProductForm({ initial, categories, isNew, onCancel, onSave, onManageCat
 
           <Field label="カテゴリー">
             <div className="flex items-center gap-2">
-              <select
-                value={categoryId}
-                onChange={(e) => setCategoryId(e.target.value)}
-                className="flex-1 bg-transparent outline-none text-[14.5px] py-0.5"
-                style={{ color: C.ink }}
-              >
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-              <button onClick={onManageCategories} className="text-[12px]" style={{ color: C.inkSoft }}>
+              <div className="relative flex-1 flex items-center">
+                <select
+                  value={categoryId}
+                  onChange={(e) => setCategoryId(e.target.value)}
+                  className="w-full bg-transparent outline-none text-[14.5px] py-0.5 pr-5"
+                  style={{ color: C.ink }}
+                >
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+                <ChevronDown size={14} color={C.inkSoft} className="absolute right-0 pointer-events-none" />
+              </div>
+              <button onClick={onManageCategories} className="text-[12px] flex-shrink-0" style={{ color: C.inkSoft }}>
                 管理
               </button>
             </div>
@@ -681,6 +678,7 @@ export default function WishlistApp() {
   const [session, setSession] = useState(null);
   const [loggingIn, setLoggingIn] = useState(false);
   const [loadError, setLoadError] = useState("");
+  const initializedRef = useRef(false);
 
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -711,8 +709,11 @@ export default function WishlistApp() {
       setScreen("login");
       setProducts([]);
       setCategories([]);
+      initializedRef.current = false;
       return;
     }
+    if (initializedRef.current) return;
+    initializedRef.current = true;
     (async () => {
       try {
         setLoadError("");
@@ -959,7 +960,7 @@ export default function WishlistApp() {
   }
 
   return (
-    <div className="w-full relative" style={{ maxWidth: 430, background: C.bg, minHeight: "100vh" }}>
+    <div style={{ minHeight: "100vh", background: C.beigeDeep, display: "flex", justifyContent: "center" }}>
       <style>{`
         * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", "Noto Sans JP", sans-serif; }
         button { -webkit-tap-highlight-color: transparent; }
@@ -1090,17 +1091,20 @@ export default function WishlistApp() {
                 </div>
               </div>
               <div className="flex justify-end mb-3">
-                <select
-                  value={listSort}
-                  onChange={(e) => setListSort(e.target.value)}
-                  className="text-[12px] rounded-full px-3 py-1.5"
-                  style={{ background: C.card, border: `1px solid ${C.line}`, color: C.ink }}
-                >
-                  <option value="priority">優先度が高い順</option>
-                  <option value="new">新しく追加した順</option>
-                  <option value="cheap">価格が安い順</option>
-                  <option value="drop">値下がりした順</option>
-                </select>
+                <div className="relative flex items-center">
+                  <select
+                    value={listSort}
+                    onChange={(e) => setListSort(e.target.value)}
+                    className="text-[12px] rounded-full pl-3 pr-7 py-1.5"
+                    style={{ background: C.card, border: `1px solid ${C.line}`, color: C.ink }}
+                  >
+                    <option value="priority">優先度が高い順</option>
+                    <option value="new">新しく追加した順</option>
+                    <option value="cheap">価格が安い順</option>
+                    <option value="drop">値下がりした順</option>
+                  </select>
+                  <ChevronDown size={13} color={C.inkSoft} className="absolute right-2.5 pointer-events-none" />
+                </div>
               </div>
             </div>
 
