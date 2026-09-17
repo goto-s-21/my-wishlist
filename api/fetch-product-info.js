@@ -5,7 +5,8 @@ export default async function handler(req, res) {
   try {
     const r = await fetch(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
         'Accept-Language': 'ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7',
       },
     });
@@ -18,78 +19,71 @@ export default async function handler(req, res) {
       if (m2) return m2[1];
       return null;
     };
-    const metaByName = (name) => {
-      const m = html.match(new RegExp(`<meta[^>]*name=["']${name}["'][^>]*content=["']([^"']+)["']`, 'i'));
-      return m ? m[1] : null;
-    };
-    const cleanUrl = (s) => s ? s.replace(/\\u0026/g, '&').replace(/\\\//g, '/') : s;
 
-    let title = og('title');
-    let image = og('image');
-    let price = og('price:amount') || og('price') || metaByName('product:price:amount');
+    const cleanUrl = (s) => (s ? s.replace(/\\u0026/g, '&').replace(/\\\//g, '/') : s);
 
-    const host = (() => {
-      try { return new URL(url).hostname; } catch { return ''; }
-    })();
+    let image = cleanUrl(og('image'));
 
-    if (/amazon\.co\.jp|amazon\.com/i.test(host)) {
-      const titleMatch =
-        html.match(/id=["']productTitle["'][^>]*>\s*([^<]+?)\s*</i);
-      if (titleMatch) title = titleMatch[1].trim();
+    const aiResult = await extractProductInfoWithAI(html);
 
-      const priceMatch =
-        html.match(/class=["'][^"']*a-price-whole[^"']*["'][^>]*>([\d,]+)/i) ||
-        html.match(/"priceAmount"\s*:\s*([\d.]+)/i);
-      if (priceMatch) price = priceMatch[1].replace(/,/g, '');
+    const title = aiResult?.name || og('title') || null;
+    const price = aiResult?.price ?? null;
 
-      const imgMatch =
-        html.match(/id=["']landingImage["'][^>]*src=["']([^"']+)["']/i) ||
-        html.match(/"hiRes"\s*:\s*"([^"]+)"/i) ||
-        html.match(/"large"\s*:\s*"([^"]+)"/i);
-      if (imgMatch) image = cleanUrl(imgMatch[1]);
-
-      if (title === 'Amazon' || title === 'Amazon.co.jp') title = null;
-    } else if (/rakuten\.co\.jp/i.test(host)) {
-      // Rakuten Ichiba generally exposes decent OGP + price meta tags already.
-      if (!price) {
-        const priceMatch = html.match(/itemprop=["']price["'][^>]*content=["']([\d.,]+)["']/i);
-        if (priceMatch) price = priceMatch[1].replace(/,/g, '');
-      }
-    } else if (/zozo\.jp/i.test(host)) {
-      if (!title) {
-        const t = html.match(/<h1[^>]*class=["'][^"']*p-goods-name[^"']*["'][^>]*>([^<]+)</i);
-        if (t) title = t[1].trim();
-      }
-      if (!price) {
-        const p = html.match(/class=["'][^"']*p-goods-price[^"']*["'][^>]*>[^\d]*([\d,]+)/i);
-        if (p) price = p[1].replace(/,/g, '');
-      }
-    } else if (/mercari\.com/i.test(host)) {
-      // Mercari renders via client-side JS; rely on OGP + any embedded JSON price.
-      if (!price) {
-        const p = html.match(/"price"\s*:\s*"?(\d+)"?/i);
-        if (p) price = p[1];
-      }
-    } else if (/qoo10\.jp/i.test(host)) {
-      if (!price) {
-        const p = html.match(/class=["'][^"']*price_real[^"']*["'][^>]*>[^\d]*([\d,]+)/i) ||
-                   html.match(/"salePrice"\s*:\s*"?([\d,.]+)"?/i);
-        if (p) price = p[1].replace(/,/g, '');
-      }
-    }
-
-    if (!title) {
-      const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
-      if (titleMatch) title = titleMatch[1].trim();
-    }
-    if (!price) {
-      const priceMatch = html.match(/<meta[^>]*(?:property|name)=["'](?:product:price:amount|priceCurrency|price)["'][^>]*content=["']([\d.,]+)["']/i);
-      if (priceMatch) price = priceMatch[1].replace(/,/g, '');
-    }
-    image = cleanUrl(image);
-
-    res.status(200).json({ title, image, price });
+    return res.status(200).json({ title, image, price });
   } catch (e) {
-    res.status(200).json({ title: null, image: null, price: null });
+    return res.status(200).json({ title: null, image: null, price: null });
+  }
+}
+
+async function extractProductInfoWithAI(html) {
+  if (!process.env.GEMINI_API_KEY) {
+    console.log('[AI_DEBUG] GEMINI_API_KEY is not set');
+    return null;
+  }
+
+  try {
+    const cleanedHtml = html
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .slice(0, 20000);
+
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                {
+                  text: `以下は商品ページのHTMLです。この商品の「商品名」と「現在の販売価格（数値のみ）」を抽出し、次のJSON形式だけで回答してください。他の説明やテキストは一切不要です。\n{"name": 商品名の文字列, "price": 価格の数値}\n見つからない場合は null を入れてください。\n\n${cleanedHtml}`,
+                },
+              ],
+            },
+          ],
+          generationConfig: { temperature: 0, responseMimeType: 'application/json' },
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      console.log('[AI_DEBUG] gemini http status:', response.status);
+      return null;
+    }
+
+    const data = await response.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    if (!text) return null;
+
+    const parsed = JSON.parse(text);
+    const name = typeof parsed.name === 'string' && parsed.name.trim() ? parsed.name.trim() : null;
+    const priceNum = parseInt(String(parsed.price).replace(/[^\d]/g, ''), 10);
+    const price = isNaN(priceNum) ? null : priceNum;
+
+    return { name, price };
+  } catch (e) {
+    console.log('[AI_DEBUG] exception:', e.message);
+    return null;
   }
 }
