@@ -15,6 +15,35 @@ webpush.setVapidDetails(
   process.env.VAPID_PRIVATE_KEY
 );
 
+function htmlToText(html) {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+function extractPriceFromJsonLd(html) {
+  const scriptMatches = html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
+  for (const match of scriptMatches) {
+    try {
+      const data = JSON.parse(match[1]);
+      const items = Array.isArray(data) ? data : [data];
+      for (const item of items) {
+        const product = item['@type'] === 'Product' ? item : item['@graph']?.find?.((n) => n['@type'] === 'Product');
+        if (!product) continue;
+        const offer = Array.isArray(product.offers) ? product.offers[0] : product.offers;
+        if (offer?.price != null) {
+          const num = parseInt(String(offer.price).replace(/[^\d]/g, ''), 10);
+          if (!isNaN(num)) return num;
+        }
+      }
+    } catch (_) {}
+  }
+  return null;
+}
+
 async function extractPriceWithAI(html) {
   if (!process.env.GEMINI_API_KEY) {
     console.log('[AI_DEBUG] GEMINI_API_KEY is not set');
@@ -22,10 +51,7 @@ async function extractPriceWithAI(html) {
   }
 
   try {
-    const cleanedHtml = html
-      .replace(/<script[\s\S]*?<\/script>/gi, '')
-      .replace(/<style[\s\S]*?<\/style>/gi, '')
-      .slice(0, 20000);
+    const pageText = htmlToText(html).slice(0, 15000);
 
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${process.env.GEMINI_API_KEY}`,
@@ -37,12 +63,12 @@ async function extractPriceWithAI(html) {
             {
               parts: [
                 {
-                  text: `以下は商品ページのHTMLです。この商品の現在の販売価格を半角数字のみで答えてください（例: 12800）。カンマや円記号は不要です。価格が見つからない場合は「null」と答えてください。説明や他の文章は一切含めないでください。\n\n${cleanedHtml}`,
+                  text: `以下は商品ページのテキストです。この商品の現在の販売価格を {"price": 12800} の形式のJSONで答えてください。価格が見つからない場合は {"price": null} としてください。他の説明は不要です。\n\n${pageText}`,
                 },
               ],
             },
           ],
-          generationConfig: { temperature: 0 },
+          generationConfig: { temperature: 0, responseMimeType: 'application/json' },
         }),
       }
     );
@@ -55,9 +81,17 @@ async function extractPriceWithAI(html) {
 
     const data = await response.json();
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-    if (!text || /null/i.test(text)) return null;
+    if (!text) return null;
 
-    const num = parseInt(text.replace(/[^\d]/g, ''), 10);
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch (_) {
+      return null;
+    }
+    if (parsed.price == null) return null;
+
+    const num = parseInt(String(parsed.price).replace(/[^\d]/g, ''), 10);
     return isNaN(num) ? null : num;
   } catch (e) {
     console.log('[AI_DEBUG] exception:', e.message);
@@ -71,12 +105,19 @@ async function fetchCurrentPrice(url) {
       headers: {
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'ja-JP,ja;q=0.9',
       },
     });
     const html = await r.text();
 
     console.log('[FETCH_DEBUG] url:', url, 'html length:', html.length, 'http status:', r.status);
+
+    const jsonLdPrice = extractPriceFromJsonLd(html);
+    if (jsonLdPrice != null) {
+      console.log('[FETCH_DEBUG] JSON-LD returned:', jsonLdPrice);
+      return jsonLdPrice;
+    }
 
     const aiPrice = await extractPriceWithAI(html);
     console.log('[FETCH_DEBUG] AI returned:', aiPrice);
