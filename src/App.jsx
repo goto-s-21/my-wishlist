@@ -423,17 +423,32 @@ function ProductForm({ initial, categories, isNew, onCancel, onSave, onManageCat
     try {
       const res = await fetch(`/api/fetch-product-info?url=${encodeURIComponent(urlDraft.trim())}`);
       const info = await res.json();
-      if (info.title) setName(info.title);
-      if (info.image) setImage(info.image);
-      if (info.price) setPrice(String(Math.round(Number(info.price))));
+
+      const nextName = info.title || name;
+      const nextImage = info.image || image;
+      const nextPrice = info.price ? String(Math.round(Number(info.price))) : price;
+      const nextMsg = info.title || info.image
+        ? "取得できた情報を反映しました。残りは入力してください。"
+        : "自動取得できませんでした。情報を入力してください。";
+
+      setFetching(false);
+      setName(nextName);
+      setImage(nextImage);
+      setPrice(nextPrice);
       setUrl(urlDraft.trim());
-      setFetchMsg(info.title || info.image ? "取得できた情報を反映しました。残りは入力してください。" : "自動取得できませんでした。情報を入力してください。");
+      setFetchMsg(nextMsg);
+
+      requestAnimationFrame(() => {
+        setShowFields(true);
+      });
     } catch (e) {
+      setFetching(false);
       setUrl(urlDraft.trim());
       setFetchMsg("自動取得できませんでした（サイトの仕様により取得できない場合があります）。情報を入力してください。");
-    } finally {
-      setFetching(false);
-      setShowFields(true);
+
+      requestAnimationFrame(() => {
+        setShowFields(true);
+      });
     }
   }
 
