@@ -15,6 +15,48 @@ webpush.setVapidDetails(
   process.env.VAPID_PRIVATE_KEY
 );
 
+async function extractPriceWithAI(html) {
+  if (!process.env.GEMINI_API_KEY) return null;
+
+  try {
+    const cleanedHtml = html
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .slice(0, 20000);
+
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                {
+                  text: `以下は商品ページのHTMLです。この商品の現在の販売価格を半角数字のみで答えてください（例: 12800）。カンマや円記号は不要です。価格が見つからない場合は「null」と答えてください。説明や他の文章は一切含めないでください。\n\n${cleanedHtml}`,
+                },
+              ],
+            },
+          ],
+          generationConfig: { temperature: 0 },
+        }),
+      }
+    );
+
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    if (!text || /null/i.test(text)) return null;
+
+    const num = parseInt(text.replace(/[^\d]/g, ''), 10);
+    return isNaN(num) ? null : num;
+  } catch (e) {
+    return null;
+  }
+}
+
 async function fetchCurrentPrice(url) {
   try {
     const r = await fetch(url, {
@@ -54,7 +96,12 @@ async function fetchCurrentPrice(url) {
       if (m) price = m[1].replace(/,/g, '');
     }
 
-    return price ? Math.round(parseFloat(price)) : null;
+    if (price) {
+      return Math.round(parseFloat(price));
+    }
+
+    const aiPrice = await extractPriceWithAI(html);
+    return aiPrice;
   } catch (e) {
     return null;
   }
@@ -158,8 +205,8 @@ export default async function handler(req, res) {
     if (newPrice < product.current_price) {
       const diff = product.current_price - newPrice;
       const payload = {
-        title: '\u2661 \u5024\u4e0b\u304c\u308a\u3057\u307e\u3057\u305f',
-        body: `${product.name}\u304c\u5b89\u304f\u306a\u308a\u307e\u3057\u305f\n\u00a5${product.current_price.toLocaleString()} \u2192 \u00a5${newPrice.toLocaleString()}\uff08\u00a5${diff.toLocaleString()} OFF\uff09`,
+        title: '♡ 値下がりしました',
+        body: `${product.name}が安くなりました\n¥${product.current_price.toLocaleString()} → ¥${newPrice.toLocaleString()}（¥${diff.toLocaleString()} OFF）`,
         url: `/products/${product.id}`,
       };
 
