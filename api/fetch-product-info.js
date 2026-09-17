@@ -11,6 +11,7 @@ export default async function handler(req, res) {
       },
     });
     const html = await r.text();
+    console.log('[AI_DEBUG] html length:', html.length);
 
     const og = (prop) => {
       const m1 = html.match(new RegExp(`<meta[^>]*property=["']og:${prop}["'][^>]*content=["']([^"']+)["']`, 'i'));
@@ -25,12 +26,14 @@ export default async function handler(req, res) {
     let image = cleanUrl(og('image'));
 
     const aiResult = await extractProductInfoWithAI(html);
+    console.log('[AI_DEBUG] final aiResult:', JSON.stringify(aiResult));
 
     const title = aiResult?.name || og('title') || null;
     const price = aiResult?.price ?? null;
 
     return res.status(200).json({ title, image, price });
   } catch (e) {
+    console.log('[AI_DEBUG] top-level exception:', e.message);
     return res.status(200).json({ title: null, image: null, price: null });
   }
 }
@@ -47,6 +50,8 @@ async function extractProductInfoWithAI(html) {
       .replace(/<style[\s\S]*?<\/style>/gi, '')
       .slice(0, 20000);
 
+    console.log('[AI_DEBUG] cleanedHtml length sent to gemini:', cleanedHtml.length);
+
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${process.env.GEMINI_API_KEY}`,
       {
@@ -57,7 +62,7 @@ async function extractProductInfoWithAI(html) {
             {
               parts: [
                 {
-                  text: `以下は商品ページのHTMLです。この商品の「商品名」と「現在の販売価格（数値のみ）」を抽出し、次のJSON形式だけで回答してください。他の説明やテキストは一切不要です。\n{"name": 商品名の文字列, "price": 価格の数値}\n見つからない場合は null を入れてください。\n\n${cleanedHtml}`,
+                  text: `以下は商品ページのHTMLです。この商品の「商品名」と「現在の販売価格（数値のみ、カンマや円記号を含めない半角数字）」を抽出し、次のJSON形式だけで回答してください。他の説明やテキストは一切不要です。\n{"name": "商品名の文字列", "price": 12800}\n価格が見つからない場合は price を null にしてください。\n\n${cleanedHtml}`,
                 },
               ],
             },
@@ -67,23 +72,36 @@ async function extractProductInfoWithAI(html) {
       }
     );
 
+    console.log('[AI_DEBUG] gemini http status:', response.status);
+
     if (!response.ok) {
-      console.log('[AI_DEBUG] gemini http status:', response.status);
+      const errText = await response.text();
+      console.log('[AI_DEBUG] gemini error body:', errText.slice(0, 500));
       return null;
     }
 
     const data = await response.json();
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    console.log('[AI_DEBUG] raw text from gemini:', text);
+
     if (!text) return null;
 
     const parsed = JSON.parse(text);
+    console.log('[AI_DEBUG] parsed object:', JSON.stringify(parsed));
+
     const name = typeof parsed.name === 'string' && parsed.name.trim() ? parsed.name.trim() : null;
-    const priceNum = parseInt(String(parsed.price).replace(/[^\d]/g, ''), 10);
-    const price = isNaN(priceNum) ? null : priceNum;
+
+    let price = null;
+    if (parsed.price !== null && parsed.price !== undefined) {
+      const priceNum = parseInt(String(parsed.price).replace(/[^\d]/g, ''), 10);
+      price = isNaN(priceNum) ? null : priceNum;
+    }
+
+    console.log('[AI_DEBUG] final name:', name, 'final price:', price);
 
     return { name, price };
   } catch (e) {
-    console.log('[AI_DEBUG] exception:', e.message);
+    console.log('[AI_DEBUG] exception in extractProductInfoWithAI:', e.message);
     return null;
   }
 }
