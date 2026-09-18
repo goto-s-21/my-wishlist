@@ -51,6 +51,42 @@ function dropAmount(p) {
   return Number(p.initialPrice) - Number(p.price);
 }
 
+function StockBadge({ product, style }) {
+  const status = product.stockStatus;
+  if (status !== "low_stock" && status !== "out_of_stock") return null;
+  const isOut = status === "out_of_stock";
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-full text-[11px] font-medium px-2 py-[2px]"
+      style={{
+        background: isOut ? "#EDE3E5" : C.pink,
+        color: isOut ? C.ink : C.pinkStrong,
+        ...style,
+      }}
+    >
+      {isOut ? "在庫切れ" : "残りわずか"}
+    </span>
+  );
+}
+
+function StockBadge({ product, style }) {
+  const status = product.stockStatus;
+  if (status !== "low_stock" && status !== "out_of_stock") return null;
+  const isOut = status === "out_of_stock";
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-full text-[11px] font-medium px-2 py-[2px]"
+      style={{
+        background: isOut ? "#EDE3E5" : C.pink,
+        color: isOut ? C.ink : C.pinkStrong,
+        ...style,
+      }}
+    >
+      {isOut ? "在庫切れ" : "残りわずか"}
+    </span>
+  );
+}
+
 function resizeImage(file, maxSize = 900, quality = 0.78) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -95,6 +131,8 @@ function rowToProduct(row) {
     memo: row.memo || "",
     purchased: row.purchased,
     priceCheckEnabled: row.price_check_enabled,
+    stockStatus: row.stock_status || "unknown",
+    stockStatus: row.stock_status || "unknown",
     createdAt: new Date(row.created_at).getTime(),
     history: (row.price_history || [])
       .slice()
@@ -203,6 +241,7 @@ function ProductCard({ product, onClick }) {
           </span>
         </div>
         <PriceDropBadge product={product} style={{ alignSelf: "flex-start" }} />
+              <StockBadge product={product} style={{ alignSelf: "flex-start" }} />
         <HeartRating value={product.priority} size={12} />
       </div>
     </button>
@@ -1151,6 +1190,7 @@ export default function WishlistApp() {
                 )}
               </div>
               <PriceDropBadge product={selected} style={{ marginBottom: 12 }} />
+          <StockBadge product={selected} style={{ marginBottom: 12 }} />
 
               <div className="mb-5"><HeartRating value={selected.priority} size={18} /></div>
 
