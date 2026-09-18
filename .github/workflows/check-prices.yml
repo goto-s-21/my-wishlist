@@ -1,0 +1,15 @@
+name: Check prices and stock
+
+on:
+  schedule:
+    - cron: "0 */3 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call check-prices endpoint
+        run: |
+          curl -f -X GET "https://my-wishlist-tau.vercel.app/api/cron/check-prices" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
