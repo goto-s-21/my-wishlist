@@ -30,21 +30,23 @@ export default async function handler(req, res) {
     const jsonLdResult = extractFromJsonLd(html);
     console.log('[AI_DEBUG] jsonLdResult:', JSON.stringify(jsonLdResult));
 
-    // JSON-LD で name と price の両方が取れた場合はAIをスキップ
-    if (jsonLdResult.name && jsonLdResult.price != null) {
-      return res.status(200).json({ title: jsonLdResult.name, image, price: jsonLdResult.price });
-    }
-
+    // 在庫状況はJSON-LDだけでは判断が不十分なことが多いため、常にAIでも抽出する
     const aiResult = await extractProductInfoWithAI(html);
     console.log('[AI_DEBUG] final aiResult:', JSON.stringify(aiResult));
 
-    const title = aiResult?.name || jsonLdResult.name || og('title') || null;
-    const price = aiResult?.price ?? jsonLdResult.price ?? null;
+    // JSON-LD で name と price の両方が取れた場合はAIの name/price をスキップ（在庫状況はAI側を採用）
+    const title = jsonLdResult.name && jsonLdResult.price != null
+      ? jsonLdResult.name
+      : (aiResult?.name || jsonLdResult.name || og('title') || null);
+    const price = jsonLdResult.name && jsonLdResult.price != null
+      ? jsonLdResult.price
+      : (aiResult?.price ?? jsonLdResult.price ?? null);
+    const stockStatus = aiResult?.stockStatus ?? 'unknown';
 
-    return res.status(200).json({ title, image, price });
+    return res.status(200).json({ title, image, price, stockStatus });
   } catch (e) {
     console.log('[AI_DEBUG] top-level exception:', e.message);
-    return res.status(200).json({ title: null, image: null, price: null });
+    return res.status(200).json({ title: null, image: null, price: null, stockStatus: 'unknown' });
   }
 }
 
@@ -65,7 +67,9 @@ function extractFromJsonLd(html) {
           if (!isNaN(num)) result.price = num;
         }
       }
-    } catch (_) {}
+    } catch {
+      // 不正なJSON-LDは無視
+    }
     if (result.name && result.price != null) break;
   }
   return result;
@@ -73,8 +77,8 @@ function extractFromJsonLd(html) {
 
 function htmlToText(html) {
   return html
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
     .replace(/<[^>]+>/g, ' ')
     .replace(/\s{2,}/g, ' ')
     .trim();
@@ -87,9 +91,8 @@ async function extractProductInfoWithAI(html) {
   }
 
   try {
-    // HTMLタグをすべて除去したテキストのみをAIに渡す（トークン効率と精度が向上）
+    // HTMLタグを除去したプレーンテキストをAIに渡す（在庫の文言も含めて認識させる）
     const pageText = htmlToText(html).slice(0, 15000);
-
     console.log('[AI_DEBUG] pageText length sent to gemini:', pageText.length);
 
     const response = await fetch(
@@ -102,7 +105,19 @@ async function extractProductInfoWithAI(html) {
             {
               parts: [
                 {
-                  text: `以下は商品ページのテキストです。この商品の「商品名」と「現在の販売価格（数値のみ、カンマや円記号を含めない半角数字）」を抽出し、次のJSON形式だけで回答してください。他の説明やテキストは一切不要です。\n{"name": "商品名の文字列", "price": 12800}\n価格が見つからない場合は price を null にしてください。\n\n${pageText}`,
+                  text: `以下は商品ページのテキストです。この商品について次の3点を抽出し、次のJSON形式だけで回答してください。他の説明やテキストは一切不要です。
+
+1. name: 商品名の文字列。見つからない場合はnull。
+2. price: 現在の販売価格（数値のみ、カンマや円記号を含めない半角数字）。見つからない場合はnull。
+3. stockStatus: 在庫状況を必ず次の4つのいずれか1つの文字列で答えてください。
+   - "in_stock" （在庫あり、特に在庫に関する言及がない場合もこれ）
+   - "low_stock" （「残りわずか」「残り○点」「あと○個」「残り1点」など、在庫が少ないことを示す表記がある場合）
+   - "out_of_stock" （「売り切れ」「在庫切れ」「販売終了」「入荷待ち」など、購入できない状態を示す表記がある場合）
+   - "unknown" （ページから在庫状況が全く判断できない場合）
+
+{"name": "商品名の文字列", "price": 12800, "stockStatus": "in_stock"}
+
+${pageText}`,
                 },
               ],
             },
@@ -129,10 +144,11 @@ async function extractProductInfoWithAI(html) {
     let parsed;
     try {
       parsed = JSON.parse(text);
-    } catch (_) {
+    } catch {
       console.log('[AI_DEBUG] JSON.parse failed for text:', text?.slice(0, 200));
       return null;
     }
+
     console.log('[AI_DEBUG] parsed object:', JSON.stringify(parsed));
 
     const name = typeof parsed.name === 'string' && parsed.name.trim() ? parsed.name.trim() : null;
@@ -143,9 +159,12 @@ async function extractProductInfoWithAI(html) {
       price = isNaN(priceNum) ? null : priceNum;
     }
 
-    console.log('[AI_DEBUG] final name:', name, 'final price:', price);
+    const validStatuses = ['in_stock', 'low_stock', 'out_of_stock', 'unknown'];
+    const stockStatus = validStatuses.includes(parsed.stockStatus) ? parsed.stockStatus : 'unknown';
 
-    return { name, price };
+    console.log('[AI_DEBUG] final name:', name, 'final price:', price, 'final stockStatus:', stockStatus);
+
+    return { name, price, stockStatus };
   } catch (e) {
     console.log('[AI_DEBUG] exception in extractProductInfoWithAI:', e.message);
     return null;

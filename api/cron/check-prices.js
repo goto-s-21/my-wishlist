@@ -1,5 +1,5 @@
 // api/cron/check-prices.js
-// Vercel Cronから1日1回呼び出される価格チェック処理
+// GitHub Actionsから3時間おきに呼び出される価格・在庫チェック処理
 
 import { createClient } from '@supabase/supabase-js';
 import webpush from 'web-push';
@@ -17,14 +17,15 @@ webpush.setVapidDetails(
 
 function htmlToText(html) {
   return html
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
     .replace(/<[^>]+>/g, ' ')
     .replace(/\s{2,}/g, ' ')
     .trim();
 }
 
-function extractPriceFromJsonLd(html) {
+function extractFromJsonLd(html) {
+  const result = { price: null };
   const scriptMatches = html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
   for (const match of scriptMatches) {
     try {
@@ -36,15 +37,18 @@ function extractPriceFromJsonLd(html) {
         const offer = Array.isArray(product.offers) ? product.offers[0] : product.offers;
         if (offer?.price != null) {
           const num = parseInt(String(offer.price).replace(/[^\d]/g, ''), 10);
-          if (!isNaN(num)) return num;
+          if (!isNaN(num)) result.price = num;
         }
       }
-    } catch (_) {}
+    } catch {
+      // 不正なJSON-LDは無視
+    }
+    if (result.price != null) break;
   }
-  return null;
+  return result;
 }
 
-async function extractPriceWithAI(html) {
+async function extractInfoWithAI(html) {
   if (!process.env.GEMINI_API_KEY) {
     console.log('[AI_DEBUG] GEMINI_API_KEY is not set');
     return null;
@@ -63,7 +67,18 @@ async function extractPriceWithAI(html) {
             {
               parts: [
                 {
-                  text: `以下は商品ページのテキストです。この商品の現在の販売価格を {"price": 12800} の形式のJSONで答えてください。価格が見つからない場合は {"price": null} としてください。他の説明は不要です。\n\n${pageText}`,
+                  text: `以下は商品ページのテキストです。この商品について次の2点を抽出し、次のJSON形式だけで回答してください。他の説明やテキストは一切不要です。
+
+1. price: 現在の販売価格（数値のみ、カンマや円記号を含めない半角数字）。見つからない場合はnull。
+2. stockStatus: 在庫状況を必ず次の4つのいずれか1つの文字列で答えてください。
+   - "in_stock" （在庫あり、特に在庫に関する言及がない場合もこれ）
+   - "low_stock" （「残りわずか」「残り○点」「あと○個」「残り1点」など、在庫が少ないことを示す表記がある場合）
+   - "out_of_stock" （「売り切れ」「在庫切れ」「販売終了」「入荷待ち」など、購入できない状態を示す表記がある場合）
+   - "unknown" （ページから在庫状況が全く判断できない場合）
+
+{"price": 12800, "stockStatus": "in_stock"}
+
+${pageText}`,
                 },
               ],
             },
@@ -86,20 +101,27 @@ async function extractPriceWithAI(html) {
     let parsed;
     try {
       parsed = JSON.parse(text);
-    } catch (_) {
+    } catch {
       return null;
     }
-    if (parsed.price == null) return null;
 
-    const num = parseInt(String(parsed.price).replace(/[^\d]/g, ''), 10);
-    return isNaN(num) ? null : num;
+    let price = null;
+    if (parsed.price !== null && parsed.price !== undefined) {
+      const priceNum = parseInt(String(parsed.price).replace(/[^\d]/g, ''), 10);
+      price = isNaN(priceNum) ? null : priceNum;
+    }
+
+    const validStatuses = ['in_stock', 'low_stock', 'out_of_stock', 'unknown'];
+    const stockStatus = validStatuses.includes(parsed.stockStatus) ? parsed.stockStatus : 'unknown';
+
+    return { price, stockStatus };
   } catch (e) {
     console.log('[AI_DEBUG] exception:', e.message);
     return null;
   }
 }
 
-async function fetchCurrentPrice(url) {
+async function fetchCurrentInfo(url) {
   try {
     const r = await fetch(url, {
       headers: {
@@ -113,15 +135,15 @@ async function fetchCurrentPrice(url) {
 
     console.log('[FETCH_DEBUG] url:', url, 'html length:', html.length, 'http status:', r.status);
 
-    const jsonLdPrice = extractPriceFromJsonLd(html);
-    if (jsonLdPrice != null) {
-      console.log('[FETCH_DEBUG] JSON-LD returned:', jsonLdPrice);
-      return jsonLdPrice;
-    }
+    // 価格はJSON-LDが取れれば最優先、在庫状況はAIでのみ判定
+    const jsonLdResult = extractFromJsonLd(html);
+    const aiInfo = await extractInfoWithAI(html);
+    console.log('[FETCH_DEBUG] JSON-LD price:', jsonLdResult.price, 'AI returned:', JSON.stringify(aiInfo));
 
-    const aiPrice = await extractPriceWithAI(html);
-    console.log('[FETCH_DEBUG] AI returned:', aiPrice);
-    return aiPrice;
+    const price = jsonLdResult.price ?? aiInfo?.price ?? null;
+    const stockStatus = aiInfo?.stockStatus ?? 'unknown';
+
+    return { price, stockStatus };
   } catch (e) {
     console.log('[FETCH_DEBUG] exception:', e.message);
     return null;
@@ -179,6 +201,21 @@ async function sendFallbackEmail(userEmail, payload) {
   }
 }
 
+async function notify(userId, payload) {
+  const { pushed } = await sendPushToUser(userId, payload);
+  if (!pushed) {
+    const { data: userData } = await supabaseAdmin.auth.admin.getUserById(userId);
+    const email = userData?.user?.email;
+    if (email) await sendFallbackEmail(email, payload);
+  }
+  return pushed;
+}
+
+const STOCK_LABEL = {
+  low_stock: '残りわずか',
+  out_of_stock: '在庫切れ',
+};
+
 export default async function handler(req, res) {
   const authHeader = req.headers.authorization;
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
@@ -187,7 +224,7 @@ export default async function handler(req, res) {
 
   const { data: products, error } = await supabaseAdmin
     .from('products')
-    .select('id, user_id, name, product_url, current_price')
+    .select('id, user_id, name, product_url, current_price, stock_status')
     .eq('purchased', false)
     .eq('price_check_enabled', true)
     .not('product_url', 'is', null);
@@ -199,52 +236,70 @@ export default async function handler(req, res) {
   const results = [];
 
   for (const product of products) {
-    const newPrice = await fetchCurrentPrice(product.product_url);
+    const info = await fetchCurrentInfo(product.product_url);
 
-    if (newPrice === null) {
+    if (info === null) {
       results.push({ id: product.id, status: 'fetch_failed' });
       continue;
     }
 
-    if (newPrice === product.current_price) {
-      results.push({ id: product.id, status: 'unchanged' });
-      continue;
-    }
+    const { price: newPrice, stockStatus: newStockStatus } = info;
+    const prevStockStatus = product.stock_status || 'unknown';
+    const notifications = [];
 
-    await supabaseAdmin.from('price_history').insert({
-      product_id: product.id,
-      price: newPrice,
-      checked_at: new Date().toISOString(),
-      source: 'auto_check',
-    });
+    // --- 価格チェック ---
+    if (newPrice !== null && newPrice !== product.current_price) {
+      await supabaseAdmin.from('price_history').insert({
+        product_id: product.id,
+        price: newPrice,
+        checked_at: new Date().toISOString(),
+        source: 'auto_check',
+      });
 
-    await supabaseAdmin
-      .from('products')
-      .update({ current_price: newPrice, updated_at: new Date().toISOString() })
-      .eq('id', product.id);
-
-    if (newPrice < product.current_price) {
-      const diff = product.current_price - newPrice;
-      const payload = {
-        title: '♡ 値下がりしました',
-        body: `${product.name}が安くなりました\n¥${product.current_price.toLocaleString()} → ¥${newPrice.toLocaleString()}（¥${diff.toLocaleString()} OFF）`,
-        url: `/products/${product.id}`,
-      };
-
-      const { pushed } = await sendPushToUser(product.user_id, payload);
-
-      if (!pushed) {
-        const { data: userData } = await supabaseAdmin.auth.admin.getUserById(
-          product.user_id
-        );
-        const email = userData?.user?.email;
-        if (email) await sendFallbackEmail(email, payload);
+      if (newPrice < product.current_price) {
+        const diff = product.current_price - newPrice;
+        notifications.push({
+          title: '♡ 値下がりしました',
+          body: `${product.name}が安くなりました\n¥${product.current_price.toLocaleString()} → ¥${newPrice.toLocaleString()}（¥${diff.toLocaleString()} OFF）`,
+          url: `/products/${product.id}`,
+        });
       }
-
-      results.push({ id: product.id, status: 'price_drop_notified', pushed });
-    } else {
-      results.push({ id: product.id, status: 'price_increased_no_notify' });
     }
+
+    // --- 在庫チェック ---
+    // in_stock/unknown → low_stock/out_of_stock に変わった時だけ通知(毎回は送らない)
+    const stockGotWorse =
+      (newStockStatus === 'low_stock' || newStockStatus === 'out_of_stock') &&
+      prevStockStatus !== newStockStatus &&
+      prevStockStatus !== 'out_of_stock';
+
+    if (stockGotWorse) {
+      notifications.push({
+        title: newStockStatus === 'out_of_stock' ? '△ 在庫切れになりました' : '△ 残りわずかです',
+        body: `${product.name}が${STOCK_LABEL[newStockStatus]}になりました。お早めにご確認ください。`,
+        url: `/products/${product.id}`,
+      });
+    }
+
+    const updates = { updated_at: new Date().toISOString() };
+    if (newPrice !== null) updates.current_price = newPrice;
+    if (newStockStatus && newStockStatus !== 'unknown') updates.stock_status = newStockStatus;
+
+    await supabaseAdmin.from('products').update(updates).eq('id', product.id);
+
+    let pushedAny = false;
+    for (const payload of notifications) {
+      const pushed = await notify(product.user_id, payload);
+      pushedAny = pushedAny || pushed;
+    }
+
+    results.push({
+      id: product.id,
+      status: notifications.length > 0 ? 'notified' : 'unchanged',
+      notifiedCount: notifications.length,
+      stockStatus: newStockStatus,
+      pushed: pushedAny,
+    });
   }
 
   return res.status(200).json({ checked: products.length, results });
