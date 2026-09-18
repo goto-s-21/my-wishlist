@@ -50,25 +50,6 @@ function isDropped(p) {
 function dropAmount(p) {
   return Number(p.initialPrice) - Number(p.price);
 }
-
-function StockBadge({ product, style }) {
-  const status = product.stockStatus;
-  if (status !== "low_stock" && status !== "out_of_stock") return null;
-  const isOut = status === "out_of_stock";
-  return (
-    <span
-      className="inline-flex items-center gap-1 rounded-full text-[11px] font-medium px-2 py-[2px]"
-      style={{
-        background: isOut ? "#EDE3E5" : C.pink,
-        color: isOut ? C.ink : C.pinkStrong,
-        ...style,
-      }}
-    >
-      {isOut ? "在庫切れ" : "残りわずか"}
-    </span>
-  );
-}
-
 function StockBadge({ product, style }) {
   const status = product.stockStatus;
   if (status !== "low_stock" && status !== "out_of_stock") return null;
