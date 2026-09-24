@@ -435,7 +435,8 @@ function ProductForm({ initial, categories, isNew, onCancel, onSave, onManageCat
       const info = await res.json();
 
       const nextName = info.title || name;
-      const nextImage = info.image || image;
+      const rawImage = info.image || image;
+      const nextImage = rawImage ? rawImage.replace(/^http:\/\//, 'https://') : rawImage;
       const nextPrice = info.price ? String(Math.round(Number(info.price))) : price;
       const nextMsg = info.title || info.image
         ? "取得できた情報を反映しました。残りは入力してください。"
@@ -493,7 +494,7 @@ function ProductForm({ initial, categories, isNew, onCancel, onSave, onManageCat
       <TopBar title={isNew ? "商品を登録" : "商品を編集"} onBack={onCancel} />
 
       {isNew && !showFields && (
-        <div className="px-4">
+        <div key="url-input" className="px-4">
           <div className="flex rounded-full p-1 mb-5" style={{ background: C.beige }}>
             {[["url", "URLから登録"], ["manual", "手動で登録"]].map(([k, label]) => (
               <button
@@ -537,7 +538,7 @@ function ProductForm({ initial, categories, isNew, onCancel, onSave, onManageCat
       )}
 
       {showFields && (
-        <div className="px-4 flex flex-col gap-5">
+        <div key="form-fields" className="px-4 flex flex-col gap-5">
           {fetchMsg && (
             <div className="text-[12.5px] rounded-xl px-3 py-2.5" style={{ background: C.pink, color: C.pinkStrong }}>
               {fetchMsg}
@@ -640,6 +641,7 @@ function ProductForm({ initial, categories, isNew, onCancel, onSave, onManageCat
 
       {showFields && (
         <div
+          key="save-bar"
           className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full px-4 flex items-center z-40"
           style={{
             maxWidth: 430, height: FORM_BAR_HEIGHT,
