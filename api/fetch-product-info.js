@@ -101,8 +101,18 @@ function getMeta(html, attr, name) {
 function findMetaData(html) {
   const title = getMeta(html, 'property', 'og:title') || getMeta(html, 'name', 'twitter:title');
   const image = forceHttps(getMeta(html, 'property', 'og:image') || getMeta(html, 'name', 'twitter:image')) || null;
-  const price = parseNumber(getMeta(html, 'property', 'product:price:amount') || getMeta(html, 'property', 'og:price:amount'));
-  const availability = mapAvailability(getMeta(html, 'property', 'product:availability') || getMeta(html, 'name', 'availability'));
+  const price = parseNumber(
+    getMeta(html, 'property', 'product:price:amount') ||
+    getMeta(html, 'name', 'product:price:amount') ||
+    getMeta(html, 'property', 'og:price:amount') ||
+    getMeta(html, 'name', 'og:price:amount') ||
+    getMeta(html, 'itemprop', 'price')
+  );
+  const availability = mapAvailability(
+    getMeta(html, 'property', 'product:availability') ||
+    getMeta(html, 'name', 'availability') ||
+    getMeta(html, 'itemprop', 'availability')
+  );
   return title || image || price !== null || availability !== 'unknown' ? { title: title || null, image, price, availability } : null;
 }
 

@@ -122,6 +122,21 @@ function decodeBody(buffer, contentType) {
   try { return new TextDecoder(label).decode(buffer); } catch { return new TextDecoder('utf-8').decode(buffer); }
 }
 
+function extractFromMeta(html) {
+  const get = (attr, name) => {
+    const esc = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const m = html.match(new RegExp(`<meta[^>]*(?:${attr}=["']${esc}["'][^>]*content=["']([^"']*)["']|content=["']([^"']*)["'][^>]*${attr}=["']${esc}["'])`, 'i'));
+    return (m && (m[1] || m[2])) || '';
+  };
+  const priceRaw = get('name', 'product:price:amount') || get('property', 'product:price:amount') || get('property', 'og:price:amount') || get('name', 'og:price:amount') || get('itemprop', 'price');
+  const priceNum = priceRaw ? parseInt(String(priceRaw).replace(/[^\d]/g, ''), 10) : NaN;
+  const av = (get('itemprop', 'availability') || get('property', 'product:availability') || get('name', 'availability')).toLowerCase();
+  let stockStatus = 'unknown';
+  if (/outofstock|soldout|out of stock|在庫切れ|売り切れ|完売/.test(av)) stockStatus = 'out_of_stock';
+  else if (/instock|in stock|在庫あり|販売中|購入可能/.test(av)) stockStatus = 'in_stock';
+  return { price: Number.isFinite(priceNum) && priceNum > 0 ? priceNum : null, stockStatus };
+}
+
 async function fetchCurrentInfo(url) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 12000);
@@ -139,10 +154,16 @@ async function fetchCurrentInfo(url) {
     const html = decodeBody(Buffer.from(await r.arrayBuffer()), r.headers.get('content-type'));
 
     const jsonLdResult = extractFromJsonLd(html);
-    const aiInfo = await extractInfoWithAI(html);
+    const metaResult = extractFromMeta(html);
 
-    const price = jsonLdResult.price ?? aiInfo?.price ?? null;
-    const stockStatus = aiInfo?.stockStatus ?? 'unknown';
+    let price = jsonLdResult.price ?? metaResult.price ?? null;
+    let stockStatus = metaResult.stockStatus;
+
+    if (price === null || stockStatus === 'unknown') {
+      const aiInfo = await extractInfoWithAI(html);
+      if (price === null) price = aiInfo?.price ?? null;
+      if (stockStatus === 'unknown') stockStatus = aiInfo?.stockStatus ?? 'unknown';
+    }
 
     return { price, stockStatus };
   } catch {
