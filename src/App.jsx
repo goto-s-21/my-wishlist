@@ -493,8 +493,7 @@ function ProductForm({ initial, categories, isNew, onCancel, onSave, onManageCat
     <div style={{ paddingBottom: showFields ? FORM_BAR_HEIGHT + 24 : 24 }}>
       <TopBar title={isNew ? "商品を登録" : "商品を編集"} onBack={onCancel} />
 
-      {isNew && !showFields && (
-        <div key="url-input" className="px-4">
+      <div style={{ display: isNew && !showFields ? 'block' : 'none' }} className="px-4">
           <div className="flex rounded-full p-1 mb-5" style={{ background: C.beige }}>
             {[["url", "URLから登録"], ["manual", "手動で登録"]].map(([k, label]) => (
               <button
@@ -535,10 +534,8 @@ function ProductForm({ initial, categories, isNew, onCancel, onSave, onManageCat
             </div>
           )}
         </div>
-      )}
 
-      {showFields && (
-        <div key="form-fields" className="px-4 flex flex-col gap-5">
+      <div style={{ display: showFields ? 'flex' : 'none' }} className="px-4 flex-col gap-5">
           {fetchMsg && (
             <div className="text-[12.5px] rounded-xl px-3 py-2.5" style={{ background: C.pink, color: C.pinkStrong }}>
               {fetchMsg}
@@ -637,13 +634,11 @@ function ProductForm({ initial, categories, isNew, onCancel, onSave, onManageCat
             />
           </Field>
         </div>
-      )}
 
-      {showFields && (
-        <div
-          key="save-bar"
-          className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full px-4 flex items-center z-40"
+      <div
+          className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full px-4 items-center z-40"
           style={{
+            display: showFields ? 'flex' : 'none',
             maxWidth: 430, height: FORM_BAR_HEIGHT,
             background: `linear-gradient(180deg, rgba(253,230,236,0), ${C.bg} 40%)`,
             boxSizing: "border-box", paddingBottom: "env(safe-area-inset-bottom, 0px)",
@@ -659,7 +654,6 @@ function ProductForm({ initial, categories, isNew, onCancel, onSave, onManageCat
             保存する
           </button>
         </div>
-      )}
     </div>
   );
 }
@@ -694,9 +688,9 @@ export default function WishlistApp() {
 
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
-  const [notifSettings, setNotifSettings] = useState({ priceDropEnabled: true });
 
   const [screen, setScreen] = useState("login");
+  const [prevScreen, setPrevScreen] = useState("home");
   const [selectedId, setSelectedId] = useState(null);
   const [listFilter, setListFilter] = useState("all");
   const [listSort, setListSort] = useState("priority");
@@ -746,6 +740,7 @@ export default function WishlistApp() {
   }
 
   function openProduct(id) {
+    setPrevScreen(screen);
     setSelectedId(id);
     setCheckMsg("");
     setScreen("detail");
@@ -754,10 +749,14 @@ export default function WishlistApp() {
   /* ---- auth ---- */
   async function handleLogin() {
     setLoggingIn(true);
-    await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: window.location.origin },
-    });
+    try {
+      await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: { redirectTo: window.location.origin },
+      });
+    } catch {
+      setLoggingIn(false);
+    }
   }
   function handleLogout() {
     setDialog({
@@ -826,6 +825,7 @@ export default function WishlistApp() {
 
   async function saveEdit(id, fields) {
     const existing = products.find((p) => p.id === id);
+    if (!existing) { setCheckMsg("更新対象が見つかりませんでした。"); return; }
     const priceChanged = fields.price !== existing.price;
 
     const { error } = await supabase
@@ -874,14 +874,16 @@ export default function WishlistApp() {
   async function togglePurchased(id) {
     const target = products.find((p) => p.id === id);
     const next = !target.purchased;
-    await supabase.from("products").update({ purchased: next }).eq("id", id);
+    const { error } = await supabase.from("products").update({ purchased: next }).eq("id", id);
+    if (error) { setCheckMsg("更新に失敗しました。"); return; }
     setProducts((prev) => prev.map((p) => (p.id === id ? { ...p, purchased: next } : p)));
   }
 
   async function togglePriceCheck(id) {
     const target = products.find((p) => p.id === id);
     const next = !target.priceCheckEnabled;
-    await supabase.from("products").update({ price_check_enabled: next }).eq("id", id);
+    const { error } = await supabase.from("products").update({ price_check_enabled: next }).eq("id", id);
+    if (error) { setCheckMsg("更新に失敗しました。"); return; }
     setProducts((prev) => prev.map((p) => (p.id === id ? { ...p, priceCheckEnabled: next } : p)));
   }
 
@@ -1136,7 +1138,7 @@ export default function WishlistApp() {
           <div style={{ paddingBottom: 32 }}>
             <TopBar
               title=""
-              onBack={() => go("list")}
+              onBack={() => go(prevScreen)}
               right={
                 <div className="flex items-center gap-3">
                   <button onClick={() => go("edit")}><Pencil size={18} color={C.ink} /></button>
@@ -1236,7 +1238,7 @@ export default function WishlistApp() {
                     {selected.history.map((h, i) => {
                       const min = Math.min(...selected.history.map((x) => x.price));
                       return (
-                        <div key={i} className="flex items-center justify-between px-4 py-2.5" style={{ borderTop: i > 0 ? `1px solid ${C.line}` : "none" }}>
+                        <div key={h.date} className="flex items-center justify-between px-4 py-2.5" style={{ borderTop: i > 0 ? `1px solid ${C.line}` : "none" }}>
                           <span className="text-[12.5px]" style={{ color: C.inkSoft }}>{formatDate(h.date)}</span>
                           <div className="flex items-center gap-2">
                             {h.price === min && (
@@ -1435,4 +1437,3 @@ function CategoriesScreen({ categories, products, onBack, onAdd, onRename, onDel
     </div>
   );
 }
-

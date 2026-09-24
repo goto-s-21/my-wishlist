@@ -49,10 +49,7 @@ function extractFromJsonLd(html) {
 }
 
 async function extractInfoWithAI(html) {
-  if (!process.env.GEMINI_API_KEY) {
-    console.log('[AI_DEBUG] GEMINI_API_KEY is not set');
-    return null;
-  }
+  if (!process.env.GEMINI_API_KEY) return null;
 
   try {
     const pageText = htmlToText(html).slice(0, 15000);
@@ -88,11 +85,7 @@ ${pageText}`,
       }
     );
 
-    if (!response.ok) {
-      const errText = await response.text();
-      console.log('[AI_DEBUG] gemini error:', response.status, errText.slice(0, 300));
-      return null;
-    }
+    if (!response.ok) return null;
 
     const data = await response.json();
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
@@ -115,15 +108,17 @@ ${pageText}`,
     const stockStatus = validStatuses.includes(parsed.stockStatus) ? parsed.stockStatus : 'unknown';
 
     return { price, stockStatus };
-  } catch (e) {
-    console.log('[AI_DEBUG] exception:', e.message);
+  } catch {
     return null;
   }
 }
 
 async function fetchCurrentInfo(url) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 12000);
   try {
     const r = await fetch(url, {
+      signal: controller.signal,
       headers: {
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
@@ -131,22 +126,20 @@ async function fetchCurrentInfo(url) {
         'Accept-Language': 'ja-JP,ja;q=0.9',
       },
     });
+    if (!r.ok) return null;
     const html = await r.text();
 
-    console.log('[FETCH_DEBUG] url:', url, 'html length:', html.length, 'http status:', r.status);
-
-    // 価格はJSON-LDが取れれば最優先、在庫状況はAIでのみ判定
     const jsonLdResult = extractFromJsonLd(html);
     const aiInfo = await extractInfoWithAI(html);
-    console.log('[FETCH_DEBUG] JSON-LD price:', jsonLdResult.price, 'AI returned:', JSON.stringify(aiInfo));
 
     const price = jsonLdResult.price ?? aiInfo?.price ?? null;
     const stockStatus = aiInfo?.stockStatus ?? 'unknown';
 
     return { price, stockStatus };
-  } catch (e) {
-    console.log('[FETCH_DEBUG] exception:', e.message);
+  } catch {
     return null;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 

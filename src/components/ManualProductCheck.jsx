@@ -24,7 +24,7 @@ export default function ManualProductCheck({ product, onUpdated }) {
       const response = await fetch('/api/check-product', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({ url: product.url }),
+        body: JSON.stringify({ productId: product.id, url: product.url }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || '確認に失敗しました');

@@ -172,20 +172,21 @@ async function extractWithAi(html) {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
+  const productId = req.body?.productId;
   const rawUrl = req.body?.url || req.query?.url;
-  const url = normalizeUrl(rawUrl);
-  if (!url) return res.status(400).json({ error: '有効な商品URLを指定してください' });
+  const url = rawUrl ? normalizeUrl(rawUrl) : null;
+  if (!productId && !url) return res.status(400).json({ error: '商品IDまたは有効なURLを指定してください' });
 
   try {
     const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(req.headers.authorization?.replace(/^Bearer\s+/i, ''));
     if (userError || !user) return res.status(401).json({ error: 'ログインが必要です' });
 
-    const { data: product, error: productError } = await supabaseAdmin
+    let productQuery = supabaseAdmin
       .from('products')
       .select('id,user_id,product_url,current_price')
-      .eq('user_id', user.id)
-      .eq('product_url', url)
-      .maybeSingle();
+      .eq('user_id', user.id);
+    productQuery = productId ? productQuery.eq('id', productId) : productQuery.eq('product_url', url);
+    const { data: product, error: productError } = await productQuery.maybeSingle();
     if (productError) throw productError;
     if (!product) return res.status(404).json({ error: '商品が見つかりません' });
 
@@ -201,7 +202,7 @@ export default async function handler(req, res) {
       return res.status(429).json({ error: '同じ商品は1分に1回まで確認できます', retryAfter: 60 });
     }
 
-    const html = await fetchPage(url);
+    const html = await fetchPage(product.product_url);
     let result = findProductData(html) || findMetaData(html) || scanVisibleText(html) || { title: null, price: null, availability: 'unknown' };
     if (result.price === null && result.availability === 'unknown') {
       result = { ...result, ...(await extractWithAi(html) || {}) };
