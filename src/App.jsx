@@ -52,7 +52,7 @@ function dropAmount(p) {
   return Number(p.initialPrice) - Number(p.price);
 }
 function StockBadge({ product, style }) {
-  const status = product.stockStatus;
+  const status = product.availability || product.stockStatus;
   if (status !== "low_stock" && status !== "out_of_stock") return null;
   const isOut = status === "out_of_stock";
   return (
@@ -190,7 +190,7 @@ function PriceDropBadge({ product, style }) {
   );
 }
 
-function ProductCard({ product, onClick, onUpdated })  {
+function ProductCard({ product, onClick})  {
   return (
     <button
       onClick={onClick}
@@ -226,10 +226,6 @@ function ProductCard({ product, onClick, onUpdated })  {
         <PriceDropBadge product={product} style={{ alignSelf: "flex-start" }} />
               <StockBadge product={product} style={{ alignSelf: "flex-start" }} />
         <HeartRating value={product.priority} size={12} />
-        <ManualProductCheck
-              product={product}
-              onUpdated={onUpdated}
-        />
       </div>
     </button>
   );
@@ -249,7 +245,7 @@ function EmptyGridSlot() {
   );
 }
 
-function ProductGrid({ items, onOpen, onUpdated, minSlots = 0 }) {
+function ProductGrid({ items, onOpen, minSlots = 0 }) {
   const placeholders = Math.max(0, minSlots - items.length);
   return (
     <div className="grid grid-cols-2 gap-3 px-4">
@@ -1202,6 +1198,21 @@ export default function WishlistApp() {
           <StockBadge product={selected} style={{ marginBottom: 12 }} />
 
               <div className="mb-5"><HeartRating value={selected.priority} size={18} /></div>
+              <ManualProductCheck
+                product={selected}
+                onUpdated={(updated) => {
+                  setProducts((current) =>
+                      current.map((item) =>
+                          item.id === updated.id
+                                  ? {
+                                      ...item,
+                                      ...updated,
+                                    }
+                                  : item
+                              )
+                            );
+                          }}
+                        />
 
               {selected.memo && (
                 <div className="rounded-2xl px-4 py-3 mb-5 text-[13.5px] leading-relaxed" style={{ background: C.card, border: `1px solid ${C.line}`, color: C.ink }}>
