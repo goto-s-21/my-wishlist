@@ -8,6 +8,7 @@ import {
 import { supabase } from "./lib/supabase";
 import { uploadProductImage } from "./lib/uploadImage";
 import NotificationSettings from "./components/NotificationSettings";
+import ManualProductCheck from "./components/ManualProductCheck";
 
 /* ---------------------------------------------------------
    Design tokens — soft pink, Korean-style, minimal
@@ -113,8 +114,9 @@ function rowToProduct(row) {
     purchased: row.purchased,
     priceCheckEnabled: row.price_check_enabled,
     stockStatus: row.stock_status || "unknown",
-    stockStatus: row.stock_status || "unknown",
     createdAt: new Date(row.created_at).getTime(),
+    availability: row.availability || "unknown",
+    lastCheckedAt: row.last_checked_at || null,
     history: (row.price_history || [])
       .slice()
       .sort((a, b) => new Date(a.checked_at) - new Date(b.checked_at))
@@ -188,7 +190,7 @@ function PriceDropBadge({ product, style }) {
   );
 }
 
-function ProductCard({ product, onClick }) {
+function ProductCard({ product, onClick, onUpdated })  {
   return (
     <button
       onClick={onClick}
@@ -224,6 +226,10 @@ function ProductCard({ product, onClick }) {
         <PriceDropBadge product={product} style={{ alignSelf: "flex-start" }} />
               <StockBadge product={product} style={{ alignSelf: "flex-start" }} />
         <HeartRating value={product.priority} size={12} />
+        <ManualProductCheck
+              product={product}
+              onUpdated={onUpdated}
+        />
       </div>
     </button>
   );
@@ -243,7 +249,7 @@ function EmptyGridSlot() {
   );
 }
 
-function ProductGrid({ items, onOpen, minSlots = 0 }) {
+function ProductGrid({ items, onOpen, onUpdated, minSlots = 0 }) {
   const placeholders = Math.max(0, minSlots - items.length);
   return (
     <div className="grid grid-cols-2 gap-3 px-4">
@@ -1050,7 +1056,18 @@ export default function WishlistApp() {
               <EmptyState onAdd={() => go("add")} />
             ) : (
               <div className="mb-7">
-                <ProductGrid items={myWishlist.slice(0, 4)} onOpen={openProduct} minSlots={myWishlist.length <= 2 ? 2 : 0} />
+                <ProductGrid
+                  items={myWishlist.slice(0, 4)}
+                  onOpen={openProduct}
+                  onUpdated={(updated) => {
+                    setProducts((current) =>
+                      current.map((item) =>
+                        item.id === updated.id ? updated : item
+                      )
+                    );
+                  }}
+                  minSlots={myWishlist.length < 2 ? 2 : 0}
+                />
               </div>
             )}
 
@@ -1131,7 +1148,18 @@ export default function WishlistApp() {
             {filteredList.length === 0 ? (
               <div className="text-center text-[13px] py-16" style={{ color: C.inkSoft }}>見つかりませんでした</div>
             ) : (
-              <ProductGrid items={filteredList} onOpen={openProduct} minSlots={filteredList.length <= 2 ? 2 : 0} />
+              <ProductGrid
+                items={myWishlist.slice(0, 4)}
+                onOpen={openProduct}
+                onUpdated={(updated) => {
+                  setProducts((current) =>
+                    current.map((item) =>
+                      item.id === updated.id ? updated : item
+                    )
+                  );
+                }}
+                minSlots={myWishlist.length < 2 ? 2 : 0}
+              />
             )}
           </div>
         )}
