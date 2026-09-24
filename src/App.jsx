@@ -422,6 +422,7 @@ function ProductForm({ initial, categories, isNew, onCancel, onSave, onManageCat
   const [categoryId, setCategoryId] = useState(initial?.categoryId || categories[0]?.id);
   const [priority, setPriority] = useState(initial?.priority ?? 3);
   const [memo, setMemo] = useState(initial?.memo || "");
+  const [availability, setAvailability] = useState(initial?.availability || "unknown");
   const [nameError, setNameError] = useState(false);
   const [saving, setSaving] = useState(false);
   const fileRef = useRef(null);
@@ -446,6 +447,7 @@ function ProductForm({ initial, categories, isNew, onCancel, onSave, onManageCat
       setName(nextName);
       setImage(nextImage);
       setPrice(nextPrice);
+      setAvailability(info.availability || "unknown");
       setUrl(urlDraft.trim());
       setFetchMsg(nextMsg);
       setShowFields(true);
@@ -483,7 +485,7 @@ function ProductForm({ initial, categories, isNew, onCancel, onSave, onManageCat
     setSaving(true);
     const priceNum = price === "" || price === null ? null : Number(price);
     try {
-      await onSave({ name: name.trim(), image, price: priceNum, url: url.trim(), categoryId, priority, memo: memo.trim() });
+      await onSave({ name: name.trim(), image, price: priceNum, url: url.trim(), categoryId, priority, memo: memo.trim(), availability });
     } finally {
       setSaving(false);
     }
@@ -802,6 +804,7 @@ export default function WishlistApp() {
       memo: fields.memo || null,
       purchased: false,
       price_check_enabled: Boolean(fields.url) && fields.price != null,
+      availability: fields.availability || "unknown",
     };
     const { data: inserted, error } = await supabase
       .from("products")
