@@ -16,7 +16,6 @@ export default async function handler(req, res) {
           'Accept-Language': 'ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7',
         },
       });
-      if (!r.ok) return res.status(200).json({ title: null, image: null, price: null, stockStatus: 'unknown' });
       html = await r.text();
     } finally {
       clearTimeout(timeout);
@@ -35,20 +34,50 @@ export default async function handler(req, res) {
     const image = cleanUrl(og('image'));
 
     const jsonLdResult = extractFromJsonLd(html);
+    const nextDataResult = extractFromNextData(html);
     const aiResult = await extractProductInfoWithAI(html);
 
-    // JSON-LD で name と price の両方が取れた場合はAIの name/price をスキップ（在庫状況はAI側を採用）
-    const title = jsonLdResult.name && jsonLdResult.price != null
-      ? jsonLdResult.name
-      : (aiResult?.name || jsonLdResult.name || og('title') || null);
-    const price = jsonLdResult.name && jsonLdResult.price != null
-      ? jsonLdResult.price
-      : (aiResult?.price ?? jsonLdResult.price ?? null);
+    // 優先順位: JSON-LD > __NEXT_DATA__ > AI > og:title
+    const title =
+      jsonLdResult.name ||
+      nextDataResult.name ||
+      aiResult?.name ||
+      og('title') ||
+      null;
+    const price =
+      jsonLdResult.price ??
+      nextDataResult.price ??
+      aiResult?.price ??
+      null;
     const stockStatus = aiResult?.stockStatus ?? 'unknown';
 
     return res.status(200).json({ title, image, price, stockStatus });
   } catch {
     return res.status(200).json({ title: null, image: null, price: null, stockStatus: 'unknown' });
+  }
+}
+
+function extractFromNextData(html) {
+  const m = html.match(/<script[^>]*id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
+  if (!m) return { name: null, price: null };
+  try {
+    const data = JSON.parse(m[1]);
+    const search = (obj, depth = 0) => {
+      if (!obj || typeof obj !== 'object' || depth > 8) return null;
+      if ('price' in obj && (typeof obj.price === 'number' || typeof obj.price === 'string')) {
+        const num = parseInt(String(obj.price).replace(/[^\d]/g, ''), 10);
+        const name = typeof obj.name === 'string' ? obj.name.trim() : null;
+        if (!isNaN(num) && num > 0) return { name, price: num };
+      }
+      for (const v of Object.values(obj)) {
+        const r = search(v, depth + 1);
+        if (r) return r;
+      }
+      return null;
+    };
+    return search(data) || { name: null, price: null };
+  } catch {
+    return { name: null, price: null };
   }
 }
 
