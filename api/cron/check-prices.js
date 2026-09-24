@@ -137,6 +137,13 @@ function extractFromMeta(html) {
   return { price: Number.isFinite(priceNum) && priceNum > 0 ? priceNum : null, stockStatus };
 }
 
+function extractFromEmbedded(html) {
+  const m = html.match(/"priceAmount"\s*:\s*([\d.]+)/) || html.match(/"displayPrice"\s*:\s*"[^"\d]*([\d,]+)/);
+  if (!m) return null;
+  const n = parseInt(String(m[1]).replace(/[^\d]/g, ''), 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 async function fetchCurrentInfo(url) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 12000);
@@ -156,7 +163,7 @@ async function fetchCurrentInfo(url) {
     const jsonLdResult = extractFromJsonLd(html);
     const metaResult = extractFromMeta(html);
 
-    let price = jsonLdResult.price ?? metaResult.price ?? null;
+    let price = jsonLdResult.price ?? metaResult.price ?? extractFromEmbedded(html) ?? null;
     let stockStatus = metaResult.stockStatus;
 
     if (price === null || stockStatus === 'unknown') {

@@ -196,6 +196,27 @@ async function fetchHtml(url) {
   } finally { clearTimeout(timeout); }
 }
 
+function findEmbeddedPrice(html) {
+  const m = html.match(/"priceAmount"\s*:\s*([\d.]+)/) || html.match(/"displayPrice"\s*:\s*"[^"\d]*([\d,]+)/);
+  return m ? parseNumber(m[1]) : null;
+}
+
+function findFallbackTitle(html) {
+  const raw = html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1];
+  if (!raw) return null;
+  const t = cleanText(raw.replace(/^Amazon\.co\.jp[:：]\s*/i, '').split(/\s*[|｜]\s*/)[0]);
+  return t ? t.slice(0, 200) : null;
+}
+
+function findFallbackImage(html) {
+  const m = html.match(/"hiRes"\s*:\s*"(https?:[^"]+)"/) || html.match(/"large"\s*:\s*"(https?:[^"]+)"/) || html.match(/id=["']landingImage["'][^>]*src=["'](https?:[^"']+)/i);
+  return m ? forceHttps(m[1].replace(/\\u002[fF]/g, '/')) : null;
+}
+
+function looksBlocked(html) {
+  return /api-services-support@amazon|to discuss automated access|画像に表示されている文字|自動化されたアクセス|ロボットではないこと|enter the characters you see below/i.test(html);
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'GET only' });
   const rawUrl = req.query?.url;
@@ -203,14 +224,26 @@ export default async function handler(req, res) {
   if (!url) return res.status(400).json({ error: '有効なURLを指定してください' });
   try {
     const { html, finalUrl, status } = await fetchHtml(url);
+    if (looksBlocked(html)) {
+      return res.status(200).json({ title: null, image: null, price: null, availability: 'unknown', source: 'none', confidence: 'none', checkedAt: new Date().toISOString(), finalUrl, status, errorCode: 'BLOCKED', error: '販売サイトにボット判定されアクセスをブロックされました' });
+    }
     const jsonLd = findJsonLdData(html);
     const meta = findMetaData(html);
     const htmlData = findHtmlData(html);
-    let data = jsonLd || meta || htmlData || null;
+    let data = jsonLd || meta || htmlData || { title: null, image: null, price: null, availability: 'unknown' };
     let source = jsonLd ? 'json_ld' : meta ? 'meta' : htmlData ? 'html' : 'none';
-    if (!data || (data.price === null && data.availability === 'unknown')) {
+    // Deterministic fallbacks for sites without og/meta/JSON-LD (e.g. Amazon)
+    if (data.price == null) { const ep = findEmbeddedPrice(html); if (ep != null) { data.price = ep; if (source === 'none') source = 'html'; } }
+    if (!data.title) { const ft = findFallbackTitle(html); if (ft) { data.title = ft; if (source === 'none') source = 'html'; } }
+    if (!data.image) { const fi = findFallbackImage(html); if (fi) data.image = fi; }
+    if (data.price === null && data.availability === 'unknown') {
       const ai = await extractWithAi(html);
-      if (ai && (ai.title || ai.price !== null || ai.availability !== 'unknown')) { data = { ...(data || {}), ...ai }; source = 'gemini'; }
+      if (ai) {
+        if (ai.price !== null) data.price = ai.price;
+        if (ai.availability && ai.availability !== 'unknown') data.availability = ai.availability;
+        if (!data.title && ai.title) data.title = ai.title;
+        if (ai.price !== null || ai.availability !== 'unknown' || ai.title) source = 'gemini';
+      }
     }
     const result = { title: data?.title || null, image: forceHttps(data?.image) || null, price: data?.price ?? null, availability: data?.availability || 'unknown', source, confidence: source === 'json_ld' || source === 'meta' ? 'high' : source === 'gemini' ? 'medium' : source === 'html' ? 'low' : 'none', checkedAt: new Date().toISOString(), finalUrl, status, errorCode: source === 'none' ? 'NO_PRODUCT_DATA' : null };
     return res.status(200).json(result);

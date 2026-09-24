@@ -439,9 +439,11 @@ function ProductForm({ initial, categories, isNew, onCancel, onSave, onManageCat
       const rawImage = info.image || image;
       const nextImage = rawImage ? rawImage.replace(/^http:\/\//, 'https://') : rawImage;
       const nextPrice = info.price ? String(Math.round(Number(info.price))) : price;
-      const nextMsg = info.title || info.image
+      const nextMsg = info.title || info.image || info.price != null
         ? "取得できた情報を反映しました。残りは入力してください。"
-        : "自動取得できませんでした。情報を入力してください。";
+        : info.errorCode === "BLOCKED"
+          ? "このサイトにボット判定でブロックされました。時間をおいて再試行するか、手入力してください。"
+          : "自動取得できませんでした（サイトの仕様により取得できない場合があります）。情報を入力してください。";
 
       setFetching(false);
       setName(nextName);
