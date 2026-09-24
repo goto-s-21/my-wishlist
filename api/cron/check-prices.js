@@ -113,6 +113,15 @@ ${pageText}`,
   }
 }
 
+function decodeBody(buffer, contentType) {
+  const headerCs = /charset=["']?([\w-]+)/i.exec(contentType || '')?.[1];
+  const metaCs = /charset=["']?([\w-]+)/i.exec(buffer.slice(0, 4096).toString('latin1'))?.[1];
+  let label = (headerCs || metaCs || 'utf-8').toLowerCase();
+  if (/^(shift[-_]?jis|sjis|x-sjis|ms932|windows-31j)$/.test(label)) label = 'shift_jis';
+  else if (/^euc[-_]?jp$/.test(label)) label = 'euc-jp';
+  try { return new TextDecoder(label).decode(buffer); } catch { return new TextDecoder('utf-8').decode(buffer); }
+}
+
 async function fetchCurrentInfo(url) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 12000);
@@ -127,7 +136,7 @@ async function fetchCurrentInfo(url) {
       },
     });
     if (!r.ok) return null;
-    const html = await r.text();
+    const html = decodeBody(Buffer.from(await r.arrayBuffer()), r.headers.get('content-type'));
 
     const jsonLdResult = extractFromJsonLd(html);
     const aiInfo = await extractInfoWithAI(html);

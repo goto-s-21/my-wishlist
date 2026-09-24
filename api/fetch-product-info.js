@@ -163,6 +163,15 @@ async function extractWithAi(html) {
   }
 }
 
+function decodeBody(buffer, contentType) {
+  const headerCs = /charset=["']?([\w-]+)/i.exec(contentType || '')?.[1];
+  const metaCs = /charset=["']?([\w-]+)/i.exec(buffer.slice(0, 4096).toString('latin1'))?.[1];
+  let label = (headerCs || metaCs || 'utf-8').toLowerCase();
+  if (/^(shift[-_]?jis|sjis|x-sjis|ms932|windows-31j)$/.test(label)) label = 'shift_jis';
+  else if (/^euc[-_]?jp$/.test(label)) label = 'euc-jp';
+  try { return new TextDecoder(label).decode(buffer); } catch { return new TextDecoder('utf-8').decode(buffer); }
+}
+
 async function fetchHtml(url) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
@@ -170,8 +179,9 @@ async function fetchHtml(url) {
     const response = await fetch(url, { signal: controller.signal, redirect: 'follow', headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36', 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', 'Accept-Language': 'ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7' } });
     const finalUrl = response.url || url;
     if (!response.ok) throw Object.assign(new Error(`HTTP ${response.status}`), { code: `HTTP_${response.status}`, finalUrl });
-    const html = await response.text();
-    if (html.length > 3000000) throw Object.assign(new Error('商品ページが大きすぎます'), { code: 'HTML_TOO_LARGE', finalUrl });
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (buffer.length > 3000000) throw Object.assign(new Error('商品ページが大きすぎます'), { code: 'HTML_TOO_LARGE', finalUrl });
+    const html = decodeBody(buffer, response.headers.get('content-type'));
     return { html, finalUrl, status: response.status };
   } finally { clearTimeout(timeout); }
 }
