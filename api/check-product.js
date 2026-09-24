@@ -1,19 +1,62 @@
+// api/check-product.js
+// 商品詳細の「今すぐ確認」ボタン用。認証必須・本人の商品のみ・1分に1回まで。
 import { createClient } from '@supabase/supabase-js';
+import { cleanProductUrl, fetchHtml } from './_lib/http.js';
+import { extractProductInfo } from './_lib/extract.js';
 
 const supabaseAdmin = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
-function forceHttps(value) { if (!value) return value; try { const url = new URL(value); if (url.protocol === 'http:') url.protocol = 'https:'; return url.toString(); } catch { return value; } }
-function cleanProductUrl(raw) { try { const url = new URL(raw); if (!['http:', 'https:'].includes(url.protocol)) return null; for (const key of [...url.searchParams.keys()]) if (/^(utm_|gclid|gbraid|dclid|scid|sc2id|iasid|icm_|ifd)/i.test(key)) url.searchParams.delete(key); return url.toString(); } catch { return null; } }
-function cleanText(value) { return String(value || '').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\s+/g, ' ').trim(); }
-function parseNumber(value) { if (value === null || value === undefined) return null; const match = String(value).replace(/,/g, '').match(/\d+(?:\.\d+)?/); return match ? Math.round(Number(match[0])) : null; }
-function mapAvailability(value) { const text = String(value || '').toLowerCase(); if (/outofstock|soldout|out of stock|在庫切れ|売り切れ|完売/.test(text)) return 'out_of_stock'; if (/preorder|pre-order|予約/.test(text)) return 'pre_order'; if (/limitedavailability|残りわずか|残り僅か/.test(text)) return 'limited'; if (/instock|in stock|在庫あり|販売中|購入可能/.test(text)) return 'in_stock'; return 'unknown'; }
-function extractJsonLd(html) { const values = []; const scripts = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>[\s\S]*?<\/script>/gi) || []; for (const script of scripts) { try { const parsed = JSON.parse(script.replace(/^<[\s\S]*?>|<\/script>$/gi, '').replace(/<!--|-->/g, '').trim()); const roots = Array.isArray(parsed) ? parsed : [parsed]; roots.forEach((root) => root?.['@graph'] ? values.push(...root['@graph']) : values.push(root)); } catch {} } return values; }
-function extractProduct(html) { const entries = extractJsonLd(html); const product = entries.find((item) => { const types = Array.isArray(item?.['@type']) ? item['@type'] : [item?.['@type']]; return types.some((type) => ['product', 'productgroup'].includes(String(type).toLowerCase())); }); if (!product) return null; const offer = Array.isArray(product.offers) ? product.offers.find(Boolean) : product.offers || {}; const spec = Array.isArray(offer.priceSpecification) ? offer.priceSpecification[0] : offer.priceSpecification; return { title: cleanText(product.name) || null, price: parseNumber(offer.price ?? offer.lowPrice ?? spec?.price ?? product.price), availability: mapAvailability(offer.availability ?? product.availability), image: forceHttps(Array.isArray(product.image) ? product.image[0] : product.image) || null }; }
-function priceFromText(html) { const text = cleanText(html.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ')); const matches = [...text.matchAll(/(?:¥|￥)\s*[\d,]+|[\d,]+\s*円/gi)].map((m) => parseNumber(m[0])).filter((n) => n >= 1 && n <= 10000000); const unique = [...new Set(matches)]; return unique.length === 1 ? unique[0] : null; }
-function getMetaContent(html, attr, name) { const esc = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); const re = new RegExp(`<meta[^>]*(?:${attr}=["']${esc}["'][^>]*content=["']([^"']*)["']|content=["']([^"']*)["'][^>]*${attr}=["']${esc}["'])`, 'i'); const m = html.match(re); return (m && (m[1] || m[2])) || ''; }
-function extractMeta(html) { const price = parseNumber(getMetaContent(html, 'name', 'product:price:amount') || getMetaContent(html, 'property', 'product:price:amount') || getMetaContent(html, 'property', 'og:price:amount') || getMetaContent(html, 'name', 'og:price:amount') || getMetaContent(html, 'itemprop', 'price')); const availability = mapAvailability(getMetaContent(html, 'itemprop', 'availability') || getMetaContent(html, 'property', 'product:availability') || getMetaContent(html, 'name', 'availability')); return { price, availability }; }
-function findEmbeddedPrice(html) { const m = html.match(/"priceAmount"\s*:\s*([\d.]+)/) || html.match(/"displayPrice"\s*:\s*"[^"\d]*([\d,]+)/); return m ? parseNumber(m[1]) : null; }
-function decodeBody(buffer, contentType) { const headerCs = /charset=["']?([\w-]+)/i.exec(contentType || '')?.[1]; const metaCs = /charset=["']?([\w-]+)/i.exec(buffer.slice(0, 4096).toString('latin1'))?.[1]; let label = (headerCs || metaCs || 'utf-8').toLowerCase(); if (/^(shift[-_]?jis|sjis|x-sjis|ms932|windows-31j)$/.test(label)) label = 'shift_jis'; else if (/^euc[-_]?jp$/.test(label)) label = 'euc-jp'; try { return new TextDecoder(label).decode(buffer); } catch { return new TextDecoder('utf-8').decode(buffer); } }
-async function fetchHtml(url) { const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 12000); try { const response = await fetch(url, { signal: controller.signal, redirect: 'follow', headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36', 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', 'Accept-Language': 'ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7' } }); if (!response.ok) throw new Error(`販売サイトがHTTP ${response.status}を返しました`); const buffer = Buffer.from(await response.arrayBuffer()); return { html: decodeBody(buffer, response.headers.get('content-type')), finalUrl: response.url || url }; } finally { clearTimeout(timer); } }
-async function extractWithAi(html) { if (!process.env.GEMINI_API_KEY) return null; const text = cleanText(html.replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ')).slice(0, 24000); const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite'}:generateContent?key=${process.env.GEMINI_API_KEY}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: `商品ページ本文から商品価格と在庫状態をJSONだけで抽出してください。priceは整数またはnull、availabilityはin_stock/out_of_stock/pre_order/limited/unknownのいずれかです。\n{"price":2980,"availability":"in_stock"}\n${text}` }] }], generationConfig: { temperature: 0, responseMimeType: 'application/json' } }) }); if (!response.ok) return null; try { const raw = (await response.json()).candidates?.[0]?.content?.parts?.[0]?.text?.trim(); const parsed = JSON.parse(raw); return { price: parseNumber(parsed.price), availability: ['in_stock','out_of_stock','pre_order','limited','unknown'].includes(parsed.availability) ? parsed.availability : 'unknown' }; } catch { return null; } }
-export default async function handler(req, res) { if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' }); const rawUrl = req.body?.url || req.query?.url; const url = cleanProductUrl(rawUrl); if (!url) return res.status(400).json({ error: '有効なURLを指定してください' }); try { const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(req.headers.authorization?.replace(/^Bearer\s+/i, '')); if (userError || !user) return res.status(401).json({ error: 'ログインが必要です' }); const { data: product, error: productError } = await supabaseAdmin.from('products').select('id,user_id,product_url,current_price').eq('user_id', user.id).eq('product_url', url).maybeSingle(); if (productError) throw productError; if (!product) return res.status(404).json({ error: '商品が見つかりません' }); const { data: recent } = await supabaseAdmin.from('manual_price_checks').select('checked_at').eq('product_id', product.id).eq('user_id', user.id).order('checked_at', { ascending: false }).limit(1).maybeSingle(); if (recent && Date.now() - new Date(recent.checked_at).getTime() < 60000) return res.status(429).json({ error: '同じ商品は1分に1回まで確認できます', retryAfter: 60 }); const { html, finalUrl } = await fetchHtml(url); const productData = extractProduct(html); const meta = extractMeta(html); const price = productData?.price ?? meta.price ?? findEmbeddedPrice(html) ?? priceFromText(html); const availability = (productData?.availability && productData.availability !== 'unknown') ? productData.availability : (meta.availability !== 'unknown' ? meta.availability : 'unknown'); const now = new Date().toISOString(); const oldPrice = product.current_price; const updates = { last_checked_at: now, last_check_status: 'success', availability }; if (price !== null) updates.current_price = price; const { error: updateError } = await supabaseAdmin.from('products').update(updates).eq('id', product.id).eq('user_id', user.id); if (updateError) throw updateError; if (price !== null && price !== oldPrice) await supabaseAdmin.from('price_history').insert({ product_id: product.id, price, checked_at: now, source: 'manual_check' }); await supabaseAdmin.from('manual_price_checks').insert({ product_id: product.id, user_id: user.id, checked_at: now, status: 'success', price, availability }); return res.status(200).json({ productId: product.id, price, availability, checkedAt: now, previousPrice: oldPrice, finalUrl }); } catch (error) { return res.status(502).json({ error: '価格・在庫を確認できませんでした', detail: error.message }); } }
+export default async function handler(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
+  const url = cleanProductUrl(req.body?.url || req.query?.url);
+  if (!url) return res.status(400).json({ error: '有効なURLを指定してください' });
+
+  try {
+    const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(req.headers.authorization?.replace(/^Bearer\s+/i, ''));
+    if (userError || !user) return res.status(401).json({ error: 'ログインが必要です' });
+
+    const { data: product, error: productError } = await supabaseAdmin
+      .from('products')
+      .select('id,user_id,product_url,current_price')
+      .eq('user_id', user.id)
+      .eq('product_url', url)
+      .maybeSingle();
+    if (productError) throw productError;
+    if (!product) return res.status(404).json({ error: '商品が見つかりません' });
+
+    // 同一商品の連打を抑止（1分に1回）
+    const { data: recent } = await supabaseAdmin
+      .from('manual_price_checks')
+      .select('checked_at')
+      .eq('product_id', product.id)
+      .eq('user_id', user.id)
+      .order('checked_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (recent && Date.now() - new Date(recent.checked_at).getTime() < 60000) {
+      return res.status(429).json({ error: '同じ商品は1分に1回まで確認できます', retryAfter: 60 });
+    }
+
+    const { html, finalUrl, blocked } = await fetchHtml(product.product_url);
+    if (blocked) return res.status(502).json({ error: '価格・在庫を確認できませんでした', detail: '販売サイトにアクセスをブロックされました' });
+
+    const { price, availability } = extractProductInfo(html);
+
+    const now = new Date().toISOString();
+    const oldPrice = product.current_price;
+    const updates = { last_checked_at: now, last_check_status: 'success', availability };
+    if (price !== null) updates.current_price = price;
+    const { error: updateError } = await supabaseAdmin.from('products').update(updates).eq('id', product.id).eq('user_id', user.id);
+    if (updateError) throw updateError;
+
+    if (price !== null && price !== oldPrice) {
+      await supabaseAdmin.from('price_history').insert({ product_id: product.id, price, checked_at: now, source: 'manual_check' });
+    }
+    await supabaseAdmin.from('manual_price_checks').insert({ product_id: product.id, user_id: user.id, checked_at: now, status: 'success', price, availability });
+
+    return res.status(200).json({ productId: product.id, price, availability, checkedAt: now, previousPrice: oldPrice, finalUrl });
+  } catch (error) {
+    console.error('[MANUAL_CHECK_ERROR]', error.message);
+    return res.status(502).json({ error: '価格・在庫を確認できませんでした', detail: error.message });
+  }
+}
