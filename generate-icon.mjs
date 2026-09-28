@@ -21,6 +21,10 @@ const makeSvg = (size) => {
 </svg>`;
 };
 
+await sharp(Buffer.from(makeSvg(512)), { density: 300 })
+  .resize(512, 512).png().toFile('public/icon-512.png');
+console.log('Generated public/icon-512.png');
+
 await sharp(Buffer.from(makeSvg(192)), { density: 144 })
   .resize(192, 192).png().toFile('public/icon-192.png');
 console.log('Generated public/icon-192.png');
