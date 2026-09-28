@@ -5,7 +5,7 @@ const makeSvg = (size) => {
   const r = Math.round(size * 0.22);
   const s = size / 192;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" fill="none">
-  <rect width="${size}" height="${size}" fill="#D46485"/>
+  <!-- transparent background — iOS supplies its own white -->
   <g transform="scale(${s})">
     <path d="
       M 96 170
@@ -16,7 +16,7 @@ const makeSvg = (size) => {
       C 152 20, 174 38, 174 66
       C 174 104, 134 142, 96 170
       Z
-    " fill="white"/>
+    " fill="#D46485"/>
   </g>
 </svg>`;
 };
