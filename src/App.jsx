@@ -858,7 +858,9 @@ export default function WishlistApp() {
     }
     const prods = await fetchProducts();
     setProducts(prods);
-    openProduct(id);
+    setPrevScreen("home");
+    setSelectedId(id);
+    go("detail");
   }
 
   function deleteProduct(id) {
