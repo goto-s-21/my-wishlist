@@ -2,9 +2,24 @@
 // 商品詳細の「今すぐ確認」ボタン用。認証必須・本人の商品のみ・1分に1回まで。
 import { createClient } from '@supabase/supabase-js';
 import { cleanProductUrl, fetchHtml } from './_lib/http.js';
-import { extractProductInfo } from './_lib/extract.js';
+import { extractProductInfo, buildAiContext, sanePrice } from './_lib/extract.js';
+import { callGeminiJson } from './_lib/gemini.js';
 
 const supabaseAdmin = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+
+const AVAILABILITY_VALUES = ['in_stock', 'out_of_stock', 'pre_order', 'limited', 'unknown'];
+
+// 決定的抽出で価格・在庫が取れなかったときだけ呼ぶAIフォールバック。
+// 登録時(fetch-product-info)・cron と同じ経路で、JSON-LD/metaを出さないサイトの取りこぼしを減らす。
+async function aiFallback(html) {
+  const prompt = `商品ページの抽出候補から現在価格、在庫状態を抽出してください。JSONのみで返してください。priceは整数またはnull、availabilityはin_stock/out_of_stock/pre_order/limited/unknownのいずれかです。送料、ポイント、クーポン、月額、型番、商品コードは価格にしないでください。\n{"price":5390,"availability":"in_stock"}\n候補:\n${buildAiContext(html)}`;
+  const parsed = await callGeminiJson(prompt);
+  if (!parsed) return null;
+  return {
+    price: sanePrice(parsed.price),
+    availability: AVAILABILITY_VALUES.includes(parsed.availability) ? parsed.availability : 'unknown',
+  };
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
@@ -40,7 +55,16 @@ export default async function handler(req, res) {
     const { html, finalUrl, blocked } = await fetchHtml(product.product_url);
     if (blocked) return res.status(502).json({ error: '価格・在庫を確認できませんでした', detail: '販売サイトにアクセスをブロックされました' });
 
-    const { price, availability } = extractProductInfo(html);
+    let { price, availability } = extractProductInfo(html);
+
+    // 決定的抽出で価格も在庫も取れなければ、登録時・cronと同じAIフォールバックで補う。
+    if (price === null && availability === 'unknown') {
+      const ai = await aiFallback(html);
+      if (ai) {
+        if (ai.price !== null) price = ai.price;
+        if (ai.availability !== 'unknown') availability = ai.availability;
+      }
+    }
 
     const now = new Date().toISOString();
     const oldPrice = product.current_price;
