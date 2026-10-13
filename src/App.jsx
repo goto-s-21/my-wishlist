@@ -282,6 +282,76 @@ function HScrollCard({ product, onClick, wide }) {
   );
 }
 
+function WishlistSearch({ query, onQueryChange, category, onCategoryChange, categories }) {
+  return (
+    <div className="flex flex-col gap-2 mb-3">
+      <div className="w-full flex items-center gap-2 rounded-full px-4 py-3" style={{ background: C.card, border: `1px solid ${C.line}` }}>
+        <Search size={16} color={C.inkSoft} />
+        <input
+          aria-label="キーワード検索"
+          value={query}
+          onChange={(e) => onQueryChange(e.target.value)}
+          placeholder="商品名・メモ・カテゴリーで検索"
+          className="flex-1 min-w-0 bg-transparent outline-none text-[13.5px]"
+          style={{ color: C.ink }}
+        />
+        {query && <button type="button" aria-label="検索語を消す" onClick={() => onQueryChange("")}><X size={15} color={C.inkSoft} /></button>}
+      </div>
+      <div className="relative">
+        <select
+          aria-label="カテゴリーで絞り込み"
+          value={category}
+          onChange={(e) => onCategoryChange(e.target.value)}
+          className="w-full rounded-full pl-4 pr-10 py-3 text-[13.5px] outline-none"
+          style={{ background: C.card, border: `1px solid ${C.line}`, color: C.ink }}
+        >
+          <option value="all">すべてのカテゴリー</option>
+          {categories.map((c) => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
+        </select>
+        <ChevronDown size={15} color={C.inkSoft} className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none" />
+      </div>
+    </div>
+  );
+}
+
+function matchesWishlistSearch(product, query, category, categories) {
+  if (category !== "all" && String(product.categoryId) !== category) return false;
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  const name = categories.find((c) => c.id === product.categoryId)?.name || SONOTA_NAME;
+  return [product.name || "", product.memo || "", name].some((text) => text.toLowerCase().includes(q));
+}
+
+function getWishlistSummary(items) {
+  return items.reduce((summary, p) => {
+    if (p.purchased) return summary;
+    summary.count += 1;
+    const price = Number(p.price);
+    if (p.price === null || p.price === undefined || String(p.price).trim() === "" || !Number.isFinite(price) || price < 0) {
+      summary.unpriced += 1;
+    } else {
+      summary.total += price;
+    }
+    return summary;
+  }, { count: 0, total: 0, unpriced: 0 });
+}
+
+function TotalBar({ items, label = "未購入の総額" }) {
+  const summary = getWishlistSummary(items);
+  return (
+    <div className="mx-4 mb-4 rounded-2xl px-4 py-3" style={{ background: C.card, border: `1px solid ${C.line}` }}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[12px]" style={{ color: C.inkSoft }}>未購入 {summary.count}件</span>
+        <div className="text-right">
+          <div className="text-[11px]" style={{ color: C.inkSoft }}>{label}</div>
+          <div className="text-[20px] font-semibold" style={{ color: C.pinkStrong }}>{formatPrice(summary.total)}</div>
+        </div>
+      </div>
+      {summary.unpriced > 0 && <div className="text-[11px] mt-1" style={{ color: C.inkSoft }}>価格未登録 {summary.unpriced}件は合計に含めていません</div>}
+    </div>
+  );
+}
+
 function SectionHeader({ title, onMore }) {
   return (
     <div className="flex items-center justify-between px-4 mb-2.5">
@@ -699,6 +769,7 @@ export default function WishlistApp() {
   const [listFilter, setListFilter] = useState("all");
   const [listSort, setListSort] = useState("priority");
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchCategory, setSearchCategory] = useState("all");
   const [toast, setToast] = useState(null);
   const [dialog, setDialog] = useState(null);
   const [checkMsg, setCheckMsg] = useState("");
@@ -737,6 +808,12 @@ export default function WishlistApp() {
       }
     })();
   }, [session]);
+
+  useEffect(() => {
+    if (searchCategory !== "all" && !categories.some((c) => String(c.id) === searchCategory)) {
+      setSearchCategory("all");
+    }
+  }, [categories, searchCategory]);
 
   function go(key) {
     setScreen(key);
@@ -949,26 +1026,24 @@ export default function WishlistApp() {
   const priceDrops = useMemo(() => products.filter((p) => !p.purchased && isDropped(p)), [products]);
   const recentlyAdded = useMemo(() => [...products].sort((a, b) => b.createdAt - a.createdAt).slice(0, 10), [products]);
 
+  const homeSearchActive = Boolean(searchQuery.trim()) || searchCategory !== "all";
+  const homeMatches = useMemo(
+    () => myWishlist.filter((p) => matchesWishlistSearch(p, searchQuery, searchCategory, categories)),
+    [myWishlist, searchQuery, searchCategory, categories]
+  );
+
   const filteredList = useMemo(() => {
     let list = [...products];
     if (listFilter === "unpurchased") list = list.filter((p) => !p.purchased);
     else if (listFilter === "purchased") list = list.filter((p) => p.purchased);
     else if (listFilter === "pricedrop") list = list.filter((p) => isDropped(p));
-    if (searchQuery.trim()) {
-      const q = searchQuery.trim().toLowerCase();
-      list = list.filter(
-        (p) =>
-          p.name.toLowerCase().includes(q) ||
-          (p.memo || "").toLowerCase().includes(q) ||
-          categoryName(p.categoryId).toLowerCase().includes(q)
-      );
-    }
+    list = list.filter((p) => matchesWishlistSearch(p, searchQuery, searchCategory, categories));
     if (listSort === "priority") list.sort((a, b) => b.priority - a.priority);
     else if (listSort === "new") list.sort((a, b) => b.createdAt - a.createdAt);
     else if (listSort === "cheap") list.sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity));
     else if (listSort === "drop") list.sort((a, b) => (isDropped(b) ? dropAmount(b) : -1) - (isDropped(a) ? dropAmount(a) : -1));
     return list;
-  }, [products, listFilter, listSort, searchQuery, categories]);
+  }, [products, listFilter, listSort, searchQuery, searchCategory, categories]);
 
   const selected = products.find((p) => p.id === selectedId);
 
@@ -1036,30 +1111,33 @@ export default function WishlistApp() {
                 <Heart size={16} fill={C.pinkStrong} color={C.pinkStrong} />
                 <span className="text-[16px] font-semibold" style={{ color: C.ink }}>my wishlist</span>
               </div>
-              <button
-                onClick={() => { setSearchQuery(""); go("list"); }}
-                className="w-full flex items-center gap-2 rounded-full px-4 py-3"
-                style={{ background: C.card, border: `1px solid ${C.line}` }}
-              >
-                <Search size={16} color={C.inkSoft} />
-                <span className="text-[13.5px]" style={{ color: C.inkSoft }}>Search your wishlist</span>
-              </button>
+              <WishlistSearch
+                query={searchQuery}
+                onQueryChange={setSearchQuery}
+                category={searchCategory}
+                onCategoryChange={setSearchCategory}
+                categories={categories}
+              />
             </div>
 
-            <SectionHeader title="MY WISHLIST" onMore={myWishlist.length > 4 ? () => { setListFilter("unpurchased"); setListSort("priority"); go("list"); } : null} />
-            {myWishlist.length === 0 ? (
-              <EmptyState onAdd={() => go("add")} />
+            <TotalBar items={homeMatches} label={homeSearchActive ? "検索結果の未購入総額" : "ウィッシュリスト総額"} />
+
+            <SectionHeader title={homeSearchActive ? "SEARCH RESULTS" : "MY WISHLIST"} onMore={!homeSearchActive && myWishlist.length > 4 ? () => { setListFilter("unpurchased"); setListSort("priority"); go("list"); } : null} />
+            {homeMatches.length === 0 ? (
+              homeSearchActive ? (
+                <div className="text-center text-[13px] py-12" style={{ color: C.inkSoft }}>見つかりませんでした</div>
+              ) : <EmptyState onAdd={() => go("add")} />
             ) : (
               <div className="mb-7">
                 <ProductGrid
-                  items={myWishlist.slice(0, 4)}
+                  items={homeSearchActive ? homeMatches : homeMatches.slice(0, 4)}
                   onOpen={openProduct}
-                  minSlots={myWishlist.length < 2 ? 2 : 0}
+                  minSlots={homeMatches.length < 2 ? 2 : 0}
                 />
               </div>
             )}
 
-            {priceDrops.length > 0 && (
+            {!homeSearchActive && priceDrops.length > 0 && (
               <>
                 <SectionHeader title="PRICE DROP" />
                 <div className="flex gap-3 px-4 mb-7 overflow-x-auto pb-1">
@@ -1070,7 +1148,7 @@ export default function WishlistApp() {
               </>
             )}
 
-            {recentlyAdded.length > 0 && (
+            {!homeSearchActive && recentlyAdded.length > 0 && (
               <>
                 <SectionHeader title="RECENTLY ADDED" />
                 <div className="flex gap-3 px-4 overflow-x-auto pb-1">
@@ -1087,20 +1165,13 @@ export default function WishlistApp() {
           <div style={{ paddingTop: 4, paddingBottom: NAV_HEIGHT + 16 }}>
             <div className="px-4">
               <div className="text-[16px] font-semibold mb-3" style={{ color: C.ink }}>Wishlist</div>
-              <div className="w-full flex items-center gap-2 rounded-full px-4 py-3 mb-3" style={{ background: C.card, border: `1px solid ${C.line}` }}>
-                <Search size={16} color={C.inkSoft} />
-                <input
-                  autoFocus
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="商品名・メモ・カテゴリーで検索"
-                  className="flex-1 bg-transparent outline-none text-[13.5px]"
-                  style={{ color: C.ink }}
-                />
-                {searchQuery && (
-                  <button onClick={() => setSearchQuery("")}><X size={15} color={C.inkSoft} /></button>
-                )}
-              </div>
+              <WishlistSearch
+                query={searchQuery}
+                onQueryChange={setSearchQuery}
+                category={searchCategory}
+                onCategoryChange={setSearchCategory}
+                categories={categories}
+              />
               <div className="flex items-center justify-between mb-4">
                 <div className="flex gap-1.5 overflow-x-auto">
                   {[["all", "すべて"], ["unpurchased", "未購入"], ["purchased", "購入済み"], ["pricedrop", "値下がり"]].map(([k, label]) => (
@@ -1132,6 +1203,8 @@ export default function WishlistApp() {
                 </div>
               </div>
             </div>
+
+            <TotalBar items={filteredList} label="表示中商品の未購入総額" />
 
             {filteredList.length === 0 ? (
               <div className="text-center text-[13px] py-16" style={{ color: C.inkSoft }}>見つかりませんでした</div>
