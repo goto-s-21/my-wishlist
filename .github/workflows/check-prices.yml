@@ -5,11 +5,13 @@ on:
     - cron: "0 */3 * * *"
   workflow_dispatch: {}
 
+permissions: {}
+
 jobs:
   check:
     runs-on: ubuntu-latest
     steps:
       - name: Call check-prices endpoint
         run: |
-          curl -f -X GET "https://my-wishlist-tau.vercel.app/api/cron/check-prices" \
+          curl -fsS -o /dev/null -X GET "https://my-wishlist-tau.vercel.app/api/cron/check-prices" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"

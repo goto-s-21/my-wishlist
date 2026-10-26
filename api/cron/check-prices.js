@@ -128,8 +128,9 @@ const STOCK_LABEL = {
 };
 
 export default async function handler(req, res) {
+  // CRON_SECRET未設定だと "Bearer undefined" で通ってしまうため、未設定時は常に拒否する
   const authHeader = req.headers.authorization;
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!process.env.CRON_SECRET || authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return res.status(401).json({ error: 'unauthorized' });
   }
 
@@ -141,7 +142,8 @@ export default async function handler(req, res) {
     .not('product_url', 'is', null);
 
   if (error) {
-    return res.status(500).json({ error: error.message });
+    console.error('[CRON_ERROR]', error.message);
+    return res.status(500).json({ error: 'internal error' });
   }
 
   const results = [];

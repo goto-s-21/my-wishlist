@@ -502,7 +502,10 @@ function ProductForm({ initial, categories, isNew, onCancel, onSave, onManageCat
     setFetching(true);
     setFetchMsg("");
     try {
-      const res = await fetch(`/api/fetch-product-info?url=${encodeURIComponent(urlDraft.trim())}`);
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`/api/fetch-product-info?url=${encodeURIComponent(urlDraft.trim())}`, {
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+      });
       const info = await res.json();
 
       const nextName = info.title || name;

@@ -1,6 +1,7 @@
 // api/fetch-product-info.js
-// URL登録時に商品名・画像・価格・在庫を推定して返す（認証不要のGET）。
+// URL登録時に商品名・画像・価格・在庫を推定して返す（ログイン必須のGET）。
 import { cleanProductUrl, fetchHtml } from './_lib/http.js';
+import { getUser } from './_lib/auth.js';
 import { extractProductInfo, buildAiContext, cleanText, sanePrice } from './_lib/extract.js';
 import { callGeminiJson } from './_lib/gemini.js';
 
@@ -27,6 +28,7 @@ function confidenceOf(source) {
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'GET only' });
+  if (!(await getUser(req))) return res.status(401).json({ error: 'ログインが必要です' });
   const url = cleanProductUrl(req.query?.url);
   if (!url) return res.status(400).json({ error: '有効なURLを指定してください' });
 

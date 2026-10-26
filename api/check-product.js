@@ -81,6 +81,6 @@ export default async function handler(req, res) {
     return res.status(200).json({ productId: product.id, price, availability, checkedAt: now, previousPrice: oldPrice, finalUrl });
   } catch (error) {
     console.error('[MANUAL_CHECK_ERROR]', error.message);
-    return res.status(502).json({ error: '価格・在庫を確認できませんでした', detail: error.message });
+    return res.status(502).json({ error: '価格・在庫を確認できませんでした' });
   }
 }
